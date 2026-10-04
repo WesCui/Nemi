@@ -76,6 +76,10 @@ const errors: Record<string, string> = {
   AGENT_CONTEXT_TOO_LARGE: "本次任务的资料过长，请缩小范围或开始新对话。",
   AGENT_LEDGER_UNAVAILABLE: "执行记录暂时无法保存。请稍后查看结果，此请求不会自动重试。",
   AGENT_NO_LONGER_ACTIVE: "本次任务已停止，已完成的操作可在执行记录中查看。",
+  AGENT_CANCELLED: "已停止本次任务。已产生的提案仍可查看；已经提交的模型请求可能产生费用。",
+  AGENT_TOOL_LOOP_DETECTED: "重复调用未能推进任务，本次处理已停止。请补充信息或调整要求后继续。",
+  AGENT_INVALID_SUMMARY: "模型未能生成有效的历史摘要，本次任务已停止，聊天原文仍保留。",
+  AGENT_CHECKPOINT_UNAVAILABLE: "历史整理结果暂时无法保存，本次任务已停止，请稍后检查。",
 };
 export function modelFailure(code: string) { return errors[code] || "模型未能完成回复，请检查 Key、型号及服务商额度。结果不确定的请求不会自动重发。"; }
 export function ModelSettings({

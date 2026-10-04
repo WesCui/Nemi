@@ -72,3 +72,12 @@ UNKNOWN 不会自动重试；用户先在接收群核对。明确业务拒绝显
 飞书认证与文档读取复用 [官方 Go SDK v3.12.0](https://github.com/larksuite/oapi-sdk-go)，对应 [docx raw_content 实现](https://github.com/larksuite/oapi-sdk-go/blob/v3.12.0/service/docx/v1/resource.go)。纯文本最多 12000 字节，Wiki、表格、旧版文档、图片与附件不在当前支持范围。
 
 模型接口依据：[千问](https://help.aliyun.com/zh/model-studio/qwen-api-reference/)、[DeepSeek](https://api-docs.deepseek.com/zh-cn/api/create-chat-completion)、[Kimi](https://platform.kimi.com/docs/api/chat)、[豆包](https://docs.volcengine.com/docs/ark/chat-api)、[智谱](https://docs.bigmodel.cn/api-reference/模型-api/对话补全)。仅固定国内官方文本对话端点，不接受用户 Base URL；具体模型的参数、推理模式、额度与价格以对应控制台为准。
+
+
+## v0.7 直接在妮米对话中操作
+
+用户可以说“连接企业微信”“读取这份飞书文档”“把工作安排发到飞书群”。Agent 的 request_connection 创建内部配置卡片，保存后在原对话继续；群发送用 propose_message 准备固定接收方和正文，用户确认后调用官方 Adapter。开通机器人 / 自建应用和授权资源仍由用户或管理员完成，不能从个人账号登录状态推导读取权限。
+
+消息审批、当前配置版本校验与投递 claim 同事务提交；提案 ID 作为稳定投递键，换请求键不重发。刷新聊天读取同一平台回执，APPROVED 只表示已确认，DELIVERED 才表示平台已接受。连接表单不会将 Webhook 或 App Secret 注入模型上下文。后台站内提醒不因此自动发到外部群。
+
+此节扩展已有应用界面，未实现全平台 OAuth、个人微信读取、邮箱、WPS、12306 或购物账号。高德当前仍有官方跳转入口，未来需通过正式 API 提供内部结果。

@@ -55,6 +55,8 @@ func (a *Activities) Generate(ctx context.Context, r store.Ref) error {
 		return temporal.NewNonRetryableApplicationError("model attempt unavailable", "UNKNOWN", e)
 	}
 	activity.RecordHeartbeat(ctx)
+	executionCtx, cancelExecution := context.WithCancel(ctx)
+	defer cancelExecution()
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
@@ -68,12 +70,21 @@ func (a *Activities) Generate(ctx context.Context, r store.Ref) error {
 				return
 			case <-tick.C:
 				activity.RecordHeartbeat(ctx)
+				if g.Kind == "chat" {
+					checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+					active, err := a.Store.AgentActive(checkCtx, r)
+					cancel()
+					if err != nil || !active {
+						cancelExecution()
+						return
+					}
+				}
 			}
 		}
 	}()
 	var out model.Output
 	if g.Kind == "chat" {
-		out, e = agent.Generate(ctx, a.Store, a.Vault, g, r, in.Source)
+		out, e = agent.Generate(executionCtx, a.Store, a.Vault, g, r, in.Source)
 	} else {
 		out, e = g.Generate(ctx, in.Title, in.Source)
 	}
@@ -96,6 +107,9 @@ func (a *Activities) Generate(ctx context.Context, r store.Ref) error {
 	// Only DB settlement retries here; never repeat the model call.
 	for i := 0; i < 5; i++ {
 		e = a.Store.FinishRun(ctx, r, out.Plan, out.InputTokens, out.OutputTokens, cost)
+		if e != nil && e.Error() == "RUN_NO_LONGER_ACTIVE" {
+			return nil
+		}
 		if e == nil {
 			return nil
 		}

@@ -189,3 +189,12 @@ npm run test:e2e
 浏览器隔离 runner 会编译当前版本的 API、提醒、Relay 与测试专用 Agent Worker 到 .cache/bin/e2e，避免混用旧二进制。它只使用 nemi_test、随机工作空间和独立 Temporal 队列，测试结束关闭自己启动的服务。协议替身只在 Go 测试二进制内，真实产品 Worker 没有生成回退。可用 npm run test:e2e:isolated -- tests/e2e/chat.spec.ts 复验对话。
 
 事务迁移完成 schema v7 后，重启不重复执行 DDL，避免持久任务结算与迁移表锁互相阻塞。改动数据库合同必须提升 schema 版本。Agent 生命周期继续由 Temporal 管理，付费步骤不得通过 Activity / SDK 自动重试；数据库结算可以按同一 position 幂等重试。
+
+
+## v0.7 harness 与对话应用联调
+
+迁移升级为 schema v8，提示合同 agent-v2。更新须同步重启 API、Runtime、Notification 和 Relay；已排队旧合同不能默默使用新提示，配置不匹配会明确停止。Windows 使用安装的 Git Bash，source scripts/env.sh 后执行 Go 命令，无需 WSL。
+
+摘要组件直接使用现有 Eino 依赖，不新增第二个 Agent Runtime。新增测试见 internal/agent/harness*test.go、internal/store/harness_integration_test.go、internal/api/agent_apps_integration_test.go 和 tests/e2e/chat.spec.ts。只使用 nemi_test 和独立 Temporal 队列。浏览器测试不向外部平台发送消息；Go 协议 Transport 验证确认投递、旧连接拒绝及未知回执不重发。
+
+服务重启前保留旧服务运行，通过独立 .next-v07 目录与 .cache/bin/v07 构建新版本。生成目录不入 Git。真实验收凭据只在妮米的模型和连接卡片填写；不要贴到普通聊天、终端输出或开发对话。

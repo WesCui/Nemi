@@ -17,13 +17,20 @@ func (s *Store) ClaimDispatch(ctx context.Context, w, key, id string, body []byt
 		return "", false, e
 	}
 	defer tx.Rollback(ctx)
-	if _, e = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", "dispatch:"+w); e != nil {
+	status, claimed, e := claimDispatchTx(ctx, tx, w, key, id, body)
+	if e != nil || !claimed {
+		return status, claimed, e
+	}
+	return status, true, tx.Commit(ctx)
+}
+func claimDispatchTx(ctx context.Context, tx pgx.Tx, w, key, id string, body []byte) (string, bool, error) {
+	if _, e := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", "dispatch:"+w); e != nil {
 		return "", false, e
 	}
 	h := sha256.Sum256(body)
 	var oldID, status string
 	var oldHash []byte
-	e = tx.QueryRow(ctx, "SELECT connector_id,body_hash,status FROM connector_dispatches WHERE workspace_id=$1 AND key=$2", w, key).Scan(&oldID, &oldHash, &status)
+	e := tx.QueryRow(ctx, "SELECT connector_id,body_hash,status FROM connector_dispatches WHERE workspace_id=$1 AND key=$2", w, key).Scan(&oldID, &oldHash, &status)
 	if e == nil {
 		if oldID != id || !bytes.Equal(oldHash, h[:]) {
 			return "", false, domain.ErrConflict
@@ -46,9 +53,6 @@ func (s *Store) ClaimDispatch(ctx context.Context, w, key, id string, body []byt
 	}
 	_, e = tx.Exec(ctx, "INSERT INTO connector_dispatches(workspace_id,key,connector_id,body_hash,status) VALUES($1,$2,$3,$4,'SENDING')", w, key, id, h[:])
 	if e != nil {
-		return "", false, e
-	}
-	if e = tx.Commit(ctx); e != nil {
 		return "", false, e
 	}
 	return "SENDING", true, nil

@@ -17,6 +17,7 @@ type Conversation struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 type ChatTurn struct {
+	Plan      *domain.TaskPlan     `json:"plan,omitempty"`
 	Steps     []domain.AgentStep   `json:"steps"`
 	Actions   []domain.AgentAction `json:"actions"`
 	RunID     string               `json:"run_id"`
@@ -28,8 +29,9 @@ type ChatTurn struct {
 	CreatedAt time.Time            `json:"created_at"`
 }
 type ChatDetail struct {
-	Conversation Conversation `json:"conversation"`
-	Turns        []ChatTurn   `json:"turns"`
+	SummaryThrough int          `json:"summary_through"`
+	Conversation   Conversation `json:"conversation"`
+	Turns          []ChatTurn   `json:"turns"`
 }
 
 func (s *Store) Conversations(ctx context.Context, w string) ([]Conversation, error) {
@@ -55,14 +57,14 @@ func (s *Store) Conversation(ctx context.Context, w, id string) (ChatDetail, err
 		return d, err
 	}
 	defer tx.Rollback(ctx)
-	err = tx.QueryRow(ctx, "SELECT id,title,updated_at FROM conversations WHERE workspace_id=$1 AND id=$2", w, id).Scan(&d.Conversation.ID, &d.Conversation.Title, &d.Conversation.UpdatedAt)
+	err = tx.QueryRow(ctx, "SELECT id,title,updated_at,summary_through FROM conversations WHERE workspace_id=$1 AND id=$2", w, id).Scan(&d.Conversation.ID, &d.Conversation.Title, &d.Conversation.UpdatedAt, &d.SummaryThrough)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, domain.ErrNotFound
 	}
 	if err != nil {
 		return d, err
 	}
-	rows, err := tx.Query(ctx, `SELECT t.run_id,t.user_text,COALESCE(r.result->>'summary',''),r.status,r.error_code,COALESCE(m.label,'服务端模型'),t.created_at
+	rows, err := tx.Query(ctx, `SELECT t.run_id,t.user_text,COALESCE(r.result->>'summary',''),r.status,r.error_code,COALESCE(m.label,'服务端模型'),t.created_at,r.task_plan
  FROM chat_turns t JOIN runs r ON r.workspace_id=t.workspace_id AND r.id=t.run_id
  LEFT JOIN personal_models m ON m.workspace_id=r.workspace_id AND m.id=r.model_config_id
  WHERE t.workspace_id=$1 AND t.conversation_id=$2 ORDER BY t.position`, w, id)
@@ -72,7 +74,7 @@ func (s *Store) Conversation(ctx context.Context, w, id string) (ChatDetail, err
 	defer rows.Close()
 	for rows.Next() {
 		t := ChatTurn{Steps: []domain.AgentStep{}, Actions: []domain.AgentAction{}}
-		if err = rows.Scan(&t.RunID, &t.Text, &t.Reply, &t.Status, &t.Error, &t.Model, &t.CreatedAt); err != nil {
+		if err = rows.Scan(&t.RunID, &t.Text, &t.Reply, &t.Status, &t.Error, &t.Model, &t.CreatedAt, &t.Plan); err != nil {
 			return d, err
 		}
 		d.Turns = append(d.Turns, t)
@@ -105,14 +107,14 @@ func (s *Store) Conversation(ctx context.Context, w, id string) (ChatDetail, err
 	if err != nil {
 		return d, err
 	}
-	actions, err := tx.Query(ctx, `SELECT a.id,a.run_id,a.kind,a.payload,a.status,a.result_id FROM agent_actions a JOIN chat_turns t ON t.workspace_id=a.workspace_id AND t.run_id=a.run_id WHERE t.workspace_id=$1 AND t.conversation_id=$2 ORDER BY t.position,a.created_at,a.id`, w, id)
+	actions, err := tx.Query(ctx, `SELECT a.id,a.run_id,a.kind,a.payload,a.status,a.result_id,COALESCE(NULLIF(d.status,'SENDING'),'UNKNOWN') FROM agent_actions a JOIN chat_turns t ON t.workspace_id=a.workspace_id AND t.run_id=a.run_id LEFT JOIN connector_dispatches d ON d.workspace_id=a.workspace_id AND d.key=a.id WHERE t.workspace_id=$1 AND t.conversation_id=$2 ORDER BY t.position,a.created_at,a.id`, w, id)
 	if err != nil {
 		return d, err
 	}
 	defer actions.Close()
 	for actions.Next() {
 		var a domain.AgentAction
-		if err = actions.Scan(&a.ID, &a.RunID, &a.Kind, &a.Payload, &a.Status, &a.ResultID); err != nil {
+		if err = actions.Scan(&a.ID, &a.RunID, &a.Kind, &a.Payload, &a.Status, &a.ResultID, &a.DispatchStatus); err != nil {
 			return d, err
 		}
 		i := index[a.RunID]
@@ -151,8 +153,8 @@ func (s *Store) CreateChatRun(ctx context.Context, tx pgx.Tx, w, conversation, t
 			return nil, 0, err
 		}
 	}
-	var found string
-	if err := tx.QueryRow(ctx, "SELECT id FROM conversations WHERE workspace_id=$1 AND id=$2 FOR UPDATE", w, conversation).Scan(&found); errors.Is(err, pgx.ErrNoRows) {
+	checkpoint := domain.ChatContext{History: []domain.ChatMessage{}}
+	if err := tx.QueryRow(ctx, "SELECT context_summary,summary_through FROM conversations WHERE workspace_id=$1 AND id=$2 FOR UPDATE", w, conversation).Scan(&checkpoint.Summary, &checkpoint.SummaryThrough); errors.Is(err, pgx.ErrNoRows) {
 		return nil, 0, domain.ErrNotFound
 	} else if err != nil {
 		return nil, 0, err
@@ -171,37 +173,49 @@ func (s *Store) CreateChatRun(ctx context.Context, tx pgx.Tx, w, conversation, t
 	if position > 200 {
 		return nil, 0, errors.New("CHAT_TURN_LIMIT")
 	}
-	rows, err := tx.Query(ctx, `SELECT t.user_text,r.result->>'summary' FROM chat_turns t JOIN runs r ON r.workspace_id=t.workspace_id AND r.id=t.run_id
- WHERE t.workspace_id=$1 AND t.conversation_id=$2 AND r.status='SUCCEEDED' ORDER BY t.position DESC LIMIT 10`, w, conversation)
+	rows, err := tx.Query(ctx, `SELECT t.position,t.user_text,r.result->>'summary' FROM chat_turns t JOIN runs r ON r.workspace_id=t.workspace_id AND r.id=t.run_id
+ WHERE t.workspace_id=$1 AND t.conversation_id=$2 AND t.position>$3 AND r.status='SUCCEEDED' ORDER BY t.position`, w, conversation, checkpoint.SummaryThrough)
 	if err != nil {
 		return nil, 0, err
 	}
-	pairs := [][2]string{}
 	for rows.Next() {
 		var p [2]string
-		if err = rows.Scan(&p[0], &p[1]); err != nil {
+		var pos int
+		if err = rows.Scan(&pos, &p[0], &p[1]); err != nil {
 			rows.Close()
 			return nil, 0, err
 		}
-		pairs = append(pairs, p)
+		checkpoint.History = append(checkpoint.History, domain.ChatMessage{Role: "user", Content: p[0], Position: pos}, domain.ChatMessage{Role: "assistant", Content: p[1], Position: pos})
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
 		return nil, 0, err
 	}
-	history := []domain.ChatMessage{}
-	for i := len(pairs) - 1; i >= 0; i-- {
-		history = append(history, domain.ChatMessage{Role: "user", Content: pairs[i][0]}, domain.ChatMessage{Role: "assistant", Content: pairs[i][1]})
+	checkpoint.History = append(checkpoint.History, domain.ChatMessage{Role: "user", Content: text, Position: position})
+	all, _ := json.Marshal(checkpoint.History)
+	if len(checkpoint.History) > 9 || len(all)+len(checkpoint.Summary) > 10000 {
+		// Keep two recent pairs when they fit. Larger pairs are included in the
+		// summary instead of silently discarded, preserving every prior turn.
+		keep := 4
+		if keep > len(checkpoint.History)-1 {
+			keep = len(checkpoint.History) - 1
+		}
+		for keep > 0 {
+			b, _ := json.Marshal(checkpoint.History[len(checkpoint.History)-1-keep:])
+			if len(b)+6000 <= 20000 {
+				break
+			}
+			keep -= 2
+		}
+		prefix := len(checkpoint.History) - 1 - keep
+		if prefix > 0 {
+			checkpoint.CompactThrough = checkpoint.History[prefix-1].Position
+		}
 	}
-	history = append(history, domain.ChatMessage{Role: "user", Content: text})
-	snapshot, _ := json.Marshal(history)
-	for len(snapshot) > 12000 && len(history) > 1 {
-		history = history[2:]
-		snapshot, _ = json.Marshal(history)
-	}
-	if len(snapshot) > 12000 {
-		return nil, 0, errors.New("CHAT_INPUT_TOO_LARGE")
+	snapshot, _ := json.Marshal(checkpoint)
+	if len(snapshot) > 40000 {
+		return nil, 0, errors.New("CHAT_CONTEXT_TOO_LARGE")
 	}
 	id := domain.ID()
 	_, err = tx.Exec(ctx, `INSERT INTO runs(workspace_id,id,matter_id,matter_revision,snapshot_title,snapshot_source,status,mode,model_profile,kind,conversation_id,model_config_id)

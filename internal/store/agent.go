@@ -199,7 +199,7 @@ func (s *Store) AgentConnections(ctx context.Context, w string) ([]map[string]an
 	return out, rows.Err()
 }
 func (s *Store) ConversationActionState(ctx context.Context, r Ref) ([]map[string]any, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT a.id,a.payload->>'title',a.status,a.result_id FROM agent_actions a JOIN runs run ON run.workspace_id=a.workspace_id AND run.id=a.run_id
+	rows, err := s.Pool.Query(ctx, `SELECT a.id,COALESCE(a.payload->>'title',''),a.kind,a.status,a.result_id,COALESCE(NULLIF(d.status,'SENDING'),'UNKNOWN') FROM agent_actions a JOIN runs run ON run.workspace_id=a.workspace_id AND run.id=a.run_id LEFT JOIN connector_dispatches d ON d.workspace_id=a.workspace_id AND d.key=a.id
  WHERE a.workspace_id=$1 AND run.conversation_id=(SELECT conversation_id FROM runs WHERE workspace_id=$1 AND id=$2) ORDER BY a.created_at DESC,a.id LIMIT 12`, r.Workspace, r.ID)
 	if err != nil {
 		return nil, err
@@ -207,11 +207,11 @@ func (s *Store) ConversationActionState(ctx context.Context, r Ref) ([]map[strin
 	defer rows.Close()
 	out := []map[string]any{}
 	for rows.Next() {
-		var id, title, status, result string
-		if err = rows.Scan(&id, &title, &status, &result); err != nil {
+		var id, title, kind, status, result, dispatch string
+		if err = rows.Scan(&id, &title, &kind, &status, &result, &dispatch); err != nil {
 			return nil, err
 		}
-		out = append(out, map[string]any{"id": id, "title": title, "status": status, "matter_id": result})
+		out = append(out, map[string]any{"id": id, "title": title, "kind": kind, "status": status, "matter_id": result, "dispatch_status": dispatch})
 	}
 	return out, rows.Err()
 }

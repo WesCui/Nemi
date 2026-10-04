@@ -72,7 +72,7 @@ Gateway、Policy、Budget 和 Memory 是 Go 模块，不是单独微服务。Mod
 | PG / 对象存储 | 产品事实 / 大载荷和文件 | 私有网络、加密、备份；对象非公开桶 |
 | Sandbox Broker（P1） | 分配计算与浏览器、控制权交接 | 独立执行池，与主服务机器及生产密钥隔离 |
 
-P0 可在 Linux 单机或少量实例部署，单机是明确故障域；不发布高可用 SLA。生产接入、镜像、Go / Node / SDK / 数据库版本在实现时固定，Windows 开发使用 WSL2 或容器依赖。
+P0 可在 Linux 单机或少量实例部署，单机是明确故障域；不发布高可用 SLA。生产接入、镜像、Go / Node / SDK / 数据库版本在实现时固定，Windows 开发使用 Git Bash 和本机 PostgreSQL / Temporal，或现有容器依赖。
 
 ## 3. 消费领域模型
 
@@ -726,3 +726,15 @@ schema v7 的 agent_steps 固定运行内 position。HTTP 前提交 MODEL / CALL
 propose_matter 只持久保存不可变 agent_actions / PENDING。Web 展示标题、资料、分类、截止、名义提醒、重复截止与免打扰规则。POST /agent/actions/{id}/approve 经登录、来源、幂等命令、空间范围、行锁与当前日期校验，同事务创建事项、提醒 Outbox，并设置 APPROVED / result_id。重复确认读取既有结果；dismiss 设置 DECLINED，不允许其后执行。下一轮从数据库注入本段已有提案状态，旧回复不能作为已执行证据。
 
 对话提示合同升级为 agent-v1，清单仍是 plan-v2。本节取代 v0.5 的单次 chat-v1 合同；对话主入口是通用 Agent，事项与提醒是其中的工具。当前不包含云端电脑、浏览器、搜索、文件处理、自动长期规划或全平台 OAuth。
+
+## v0.7 会话 harness 与对话应用操作（当前实现）
+
+本节更新 v0.6 的对话合同为 agent-v2，清单仍为 plan-v2。schema v8 保存 context_summary / summary_through 和 task_plan。会话快照包含已有摘要和覆盖位置后的全部成功整轮原文，不再静默删除最早历史；Eino summarization middleware 使用同一模型与逐步骤费用账本整理较早内容。摘要 CAS 保存成功后，ReAct 用摘要、近期原文和当前消息执行；完整原文保留。范围、阈值和费用细节见 [harness](./HARNESS.md)。
+
+新增 update_plan、request_connection、propose_message，现有工具共十项。计划只是模型报告的工作进度，真实完成以已交付内容、工具结果或具体确认动作验证。相同工具与规范参数第三次调用终止运行，总次数与费用限制仍生效。
+
+停止通过持久运行状态封锁新模型请求、计划、摘要与提案。Worker 三秒检查状态并取消在途 HTTP；迟到用量仍可结算，未知结果继续保留预留，不能重新开始付费执行。
+
+应用连接卡片直接复用现有加密配置 API 和表单，不把凭据交给模型。首次平台授权仍需要用户 / 管理员。用户在原对话点击继续任务后，调用真实模型继续处理；目前不自动恢复任意中间工具栈。
+
+群消息工具只写 send_message / PENDING，服务端固定接收方、配置版本和正文。确认经 Action 行锁、当前连接版本与范围检查，和 connector_dispatches claim 同事务提交。Action ID 是唯一发送键，即使 HTTP 请求键不同也不会重新投递；网络在事务提交后执行一次，未知回执不重发。发送回执在聊天刷新与下一轮模型上下文中恢复。飞书、企微、钉钉只发送群文字；不开放任意目的地和通用 HTTP 工具。

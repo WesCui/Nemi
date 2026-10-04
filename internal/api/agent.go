@@ -19,6 +19,21 @@ func (a *API) decideAgentAction(w http.ResponseWriter, r *http.Request) {
 		sendError(w, 400, "请确认这次操作")
 		return
 	}
+	if r.PathValue("decision") == "approve" {
+		action, e := a.Store.ReadAction(r.Context(), identity(r).Workspace, r.PathValue("id"))
+		if errors.Is(e, domain.ErrNotFound) {
+			sendError(w, 404, "找不到这项操作")
+			return
+		}
+		if e != nil {
+			sendError(w, 503, "暂时无法读取操作")
+			return
+		}
+		if action.Kind == "send_message" {
+			a.approveAgentMessage(w, r, action)
+			return
+		}
+	}
 	a.command(w, r, raw, func(tx pgx.Tx) (any, int, error) {
 		ws := identity(r).Workspace
 		action, err := a.Store.Action(r.Context(), tx, ws, r.PathValue("id"))
@@ -40,6 +55,22 @@ func (a *API) decideAgentAction(w http.ResponseWriter, r *http.Request) {
 				return nil, 0, err
 			}
 			return map[string]string{"status": "DECLINED"}, 200, nil
+		}
+		if action.Kind == "connect_app" {
+			var p struct {
+				ID string `json:"app_id"`
+			}
+			if json.Unmarshal(action.Payload, &p) != nil {
+				return nil, 0, errors.New("ACTION_INVALID")
+			}
+			var enabled bool
+			if err = tx.QueryRow(r.Context(), "SELECT enabled FROM app_connections WHERE workspace_id=$1 AND id=$2 FOR SHARE", ws, p.ID).Scan(&enabled); err != nil || !enabled {
+				return nil, 0, domain.ErrConflict
+			}
+			if err = a.Store.DecideAction(r.Context(), tx, ws, action.ID, "APPROVED", p.ID); err != nil {
+				return nil, 0, err
+			}
+			return map[string]string{"status": "APPROVED", "app_id": p.ID}, 200, nil
 		}
 		if action.Kind != "create_matter" {
 			return nil, 0, domain.ErrConflict

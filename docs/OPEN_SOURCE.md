@@ -47,3 +47,10 @@ Nemi 借鉴显式范围和可管理的记忆接口。v0.2 的偏好只有用户�
 ## v0.6 Eino 实际复用
 
 直接依赖 [cloudwego/eino](https://github.com/cloudwego/eino) v0.9.21（Apache-2.0），复用 ReAct Agent、工具 schema 与顺序工具编排。Nemi 提供固定供应商适配器、范围约束、PG 步骤 claim、逐调用预算结算、真实数据工具与操作提案审批；Temporal 继续拥有持久运行生命周期，不另设持久执行引擎。没有复制其业务源码，未启用 Eino 自动付费重试或无限循环。完整许可证为 [Eino Apache-2.0](./licenses/cloudwego-eino-Apache-2.0.txt)，镜像随现有 docs/licenses 目录交付。
+
+
+## v0.7 harness 的实际复用与参考
+
+继续使用 Eino v0.9.21 的 ReAct；新增直接调用其 adk/middlewares/summarization 组件，接入自己的费用适配器和持久摘要 CAS。没有启用 Eino 自动模型重试，也未迁移到独立 ADK Runner。工具和消息发送仍复用既有官方 SDK / Adapter / PG 账本。
+
+调研 [DeepSeek 官方 deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)的插件架构、持久会话事件、工具 guard 和协作取消；参考 [Claude Code 工作方式](https://code.claude.com/docs/en/how-claude-code-works)、[Hooks](https://code.claude.com/docs/en/hooks)及 [Anthropic 长运行任务工程文章](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)。这些是设计参考，未安装 Claude Code / DeepSeek Harness，也未复制源码。具体取舍与交付边界见 [HARNESS.md](./HARNESS.md)。

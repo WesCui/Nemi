@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"nemi/internal/agent"
 	"nemi/internal/config"
 	"nemi/internal/domain"
 	"nemi/internal/model"
@@ -114,7 +115,7 @@ func TestChatRequiresKeyAndPreservesOwnedContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := personal.Generate(ctx, input.Title, input.Source)
+	response, err := agent.Generate(ctx, s, v, personal, ref, input.Source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,8 +143,8 @@ func TestChatRequiresKeyAndPreservesOwnedContext(t *testing.T) {
 	if err = s.Pool.QueryRow(ctx, "SELECT snapshot_source FROM runs WHERE workspace_id=$1 AND id=$2", ws, next.Run).Scan(&snapshot); err != nil {
 		t.Fatal(err)
 	}
-	var history []domain.ChatMessage
-	if json.Unmarshal([]byte(snapshot), &history) != nil || len(history) != 3 || history[0].Content != "我喜欢清淡口味" || history[1].Content != "可以从清淡的蔬菜汤开始。" || history[2].Content != "推荐一道菜" {
+	var checkpoint domain.ChatContext
+	if json.Unmarshal([]byte(snapshot), &checkpoint) != nil || len(checkpoint.History) != 3 || checkpoint.History[0].Content != "我喜欢清淡口味" || checkpoint.History[1].Content != "可以从清淡的蔬菜汤开始。" || checkpoint.History[2].Content != "推荐一道菜" {
 		t.Fatal("follow-up lost context")
 	}
 	if err = s.FailRun(ctx, store.Ref{Workspace: ws, ID: next.Run}, "MODEL_HTTP_401", 0, 0, 0); err != nil {

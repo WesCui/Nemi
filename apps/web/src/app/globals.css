@@ -2248,3 +2248,17 @@ textarea::placeholder {
 .agent-source { white-space: pre-wrap; max-height: 180px; overflow: auto; }
 .agent-action-buttons { display: flex; gap: 18px; align-items: center; margin: 16px 0 10px; }
 .agent-action > small { font-size: 11px; color: #69726b; }
+.chat-context-note { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+.chat-stop { margin: 2px 0 14px; font-size: 12px; }
+.agent-plan { border-left: 2px solid #b8c8ba; padding: 2px 0 2px 16px; margin: 14px 0 20px; max-width: 540px; }
+.agent-plan summary { font-size: 13px; cursor: pointer; overflow-wrap: anywhere; }
+.agent-plan ol { list-style: none; margin: 12px 0; padding: 0; }
+.agent-plan li { display: flex; justify-content: space-between; gap: 18px; font-size: 13px; padding: 6px 0; }
+.agent-plan li span { min-width: 0; overflow-wrap: anywhere; }
+.agent-plan small { color: var(--muted); font-size: 11px; }
+.agent-plan li small { flex-shrink: 0; }
+.agent-plan small[data-status="in_progress"] { color: #315b43; }
+.agent-connection > p { color: var(--muted); font-size: 13px; }
+.agent-connection .matter-form { margin: 12px 0; }
+.agent-connection .bot-settings { border: 0; padding: 0; }
+.agent-recipient { color: var(--muted); font-size: 12px; margin-bottom: 14px !important; }

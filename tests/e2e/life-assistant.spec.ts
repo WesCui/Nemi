@@ -90,7 +90,8 @@ test("mobile layout and honest connector states", async ({ page }) => {
   });
   await page.getByRole("button", { name: "打开导航" }).click();
   await page.getByRole("button", { name: "连接应用", exact: true }).click();
-  await expect(page.getByText("待配置", { exact: true })).toHaveCount(3);
+  const connections = await (await page.request.get("/api/v1/connections")).json();
+  await expect(page.getByText("待配置", { exact: true })).toHaveCount(connections.channels.filter((c: { state: string }) => c.state === "unconfigured").length);
   await expect(
     page.getByRole("heading", { name: "高德地图", exact: true }),
   ).toBeVisible();

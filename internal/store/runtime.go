@@ -186,6 +186,12 @@ func (s *Store) FailRun(ctx context.Context, r Ref, code string, input, output, 
 		return e
 	}
 	defer tx.Rollback(ctx)
+	if e = failRunTx(ctx, tx, r, code, input, output, cost); e != nil {
+		return e
+	}
+	return tx.Commit(ctx)
+}
+func failRunTx(ctx context.Context, tx pgx.Tx, r Ref, code string, input, output, cost int64) error {
 	// A completed activity result may have committed just before the workflow timed out.
 	tag, e := tx.Exec(ctx, `UPDATE runs SET status='FAILED',error_code=$3,
  attempt_status=CASE WHEN (kind='plan' AND attempt_status='CALLING' AND $4=0) OR EXISTS(SELECT 1 FROM agent_steps WHERE workspace_id=$1 AND run_id=$2 AND kind='MODEL' AND status IN ('CALLING','UNKNOWN')) THEN 'UNKNOWN' ELSE 'SETTLED' END,
@@ -200,7 +206,7 @@ func (s *Store) FailRun(ctx context.Context, r Ref, code string, input, output, 
 			return e
 		}
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 // Local inbox insertion is the side effect. Revision check and insertion are atomic.

@@ -93,3 +93,97 @@ test("agent proposes a real action, persists confirmation, and reads the created
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: "test-results/nemi-v06-agent-mobile.png", fullPage: true, animations: "disabled" });
 });
+
+test("harness compacts old context and restores the task plan after reload", async ({ page }) => {
+  await page.getByRole("button", { name: "新对话", exact: true }).click();
+  const history = page.getByLabel("对话内容", { exact: true });
+  for (let i = 0; i < 6; i++) {
+    await page.getByLabel("告诉妮米你想做的事").fill(i === 0 ? "预算1000元，不要订票" : i === 5 ? "制定任务计划" : `继续比较${i}`);
+    await page.getByRole("button", { name: "发送消息", exact: true }).click();
+    await expect(history.locator(".assistant > p").last()).toHaveText(i === 5 ? "已经记录工作计划。" : new RegExp(i === 0 ? "预算1000" : `继续比较${i}`));
+    await expect(page.getByRole("button", { name: "停止本次任务", exact: true })).toHaveCount(0);
+  }
+  await expect(page.getByText("已整理较早的对话背景，完整记录仍保留在这里。", { exact: true })).toBeVisible();
+  await page.reload();
+  const plan = page.locator(".agent-plan");
+  await plan.locator("summary").click();
+  await expect(plan.getByText("比较方案", { exact: true })).toBeVisible();
+  await expect(plan.getByText("进行中", { exact: true })).toBeVisible();
+  const list = await (await page.request.get("/api/v1/conversations")).json();
+  const detail = await (await page.request.get(`/api/v1/conversations/${list.conversations[0].id}`)).json();
+  expect(detail.summary_through).toBe(3);
+  expect(detail.turns).toHaveLength(6);
+  expect(detail.turns[5].steps.map((s: { name: string }) => s.name)).toEqual(["context_summary", "model", "update_plan", "model"]);
+  await page.screenshot({ path: "test-results/nemi-v07-harness.png", fullPage: true, animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator(".sidebar")).not.toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: "test-results/nemi-v07-harness-mobile.png", fullPage: true, animations: "disabled" });
+});
+
+test("stop cancels an in-flight task and permits a new turn without reviving the old result", async ({ page }) => {
+  await page.getByRole("button", { name: "新对话", exact: true }).click();
+  await page.getByLabel("告诉妮米你想做的事").fill("执行可停止的任务");
+  await page.getByRole("button", { name: "发送消息", exact: true }).click();
+  await expect.poll(async () => {
+    const list = await (await page.request.get("/api/v1/conversations")).json();
+    const detail = await (await page.request.get(`/api/v1/conversations/${list.conversations[0].id}`)).json();
+    return detail.turns[0].steps.some((s: { kind: string; status: string }) => s.kind === "MODEL" && s.status === "CALLING");
+  }).toBe(true);
+  await page.getByRole("button", { name: "停止本次任务", exact: true }).click();
+  await expect(page.getByLabel("对话内容", { exact: true }).getByRole("alert")).toContainText("已停止本次任务");
+  await page.getByLabel("告诉妮米你想做的事").fill("换一个问题");
+  await page.getByRole("button", { name: "发送消息", exact: true }).click();
+  await expect(page.getByLabel("对话内容", { exact: true }).locator(".assistant > p").last()).toHaveText("收到：换一个问题");
+  await page.waitForTimeout(3500);
+  await page.reload();
+  const list = await (await page.request.get("/api/v1/conversations")).json();
+  const detail = await (await page.request.get(`/api/v1/conversations/${list.conversations[0].id}`)).json();
+  expect(detail.turns[0].error).toBe("AGENT_CANCELLED");
+  expect(detail.turns[0].reply).toBe("");
+  expect(detail.turns[0].steps[0].status).toBe("UNKNOWN");
+  expect(detail.turns[1].status).toBe("SUCCEEDED");
+});
+
+test("connects an app inside the conversation, resumes the task, and reviews a group message", async ({ page }) => {
+  let configured = false;
+  try {
+  await page.getByRole("button", { name: "新对话", exact: true }).click();
+  const editor = page.getByLabel("告诉妮米你想做的事");
+  await editor.fill("连接企业微信");
+  await page.getByRole("button", { name: "发送消息", exact: true }).click();
+  const card = page.getByLabel("应用连接卡片", { exact: true });
+  await expect(card.getByRole("heading", { name: "连接企业微信群", exact: true })).toBeVisible();
+  await card.getByLabel("接收群名称", { exact: true }).fill("隔离协议测试群");
+  await card.getByLabel("机器人 Webhook", { exact: true }).fill("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=fixture-never-sent");
+  await card.getByRole("button", { name: "保存连接", exact: true }).click();
+  configured = true;
+  await expect(card.getByText("配置已保存", { exact: true })).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe("/");
+  await card.getByRole("button", { name: "继续刚才的任务", exact: true }).click();
+  await expect(page.getByLabel("对话内容", { exact: true }).locator(".assistant > p").last()).toContainText("应用连接已完成，请继续刚才的任务。");
+  await editor.fill("发送群消息");
+  await page.getByRole("button", { name: "发送消息", exact: true }).click();
+  const message = page.getByLabel("群消息提案", { exact: true });
+  await expect(message.getByText(/接收群：隔离协议测试群/)).toBeVisible();
+  await expect(message.getByText("请核对这份工作安排。", { exact: true })).toBeVisible();
+  await expect(message.getByRole("button", { name: "确认发送", exact: true })).toBeVisible();
+  // Never send from browser tests to an external platform. Real outbound
+  // confirmation and receipts are checked with a transport fixture in Go.
+  await message.getByRole("button", { name: "取消发送", exact: true }).click();
+  await expect(message.getByText("已取消发送", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("群消息提案", { exact: true }).getByText("已取消发送", { exact: true })).toBeVisible();
+  const list = await (await page.request.get("/api/v1/conversations")).json();
+  const detail = await (await page.request.get(`/api/v1/conversations/${list.conversations[0].id}`)).json();
+  expect(JSON.stringify(detail)).not.toContain("fixture-never-sent");
+  await page.screenshot({ path: "test-results/nemi-v07-agent-apps.png", fullPage: true, animations: "disabled" });
+  } finally {
+    if (configured) {
+      const data = await (await page.request.get("/api/v1/connections")).json();
+      const channel = data.channels.find((c: { id: string }) => c.id === "wecom");
+      const result = await page.request.put("/api/v1/connections/wecom", { headers: { Origin: process.env.NEMI_BASE_URL!, "Idempotency-Key": crypto.randomUUID() }, data: { label: "", webhook: "", secret: "", enabled: false, expected_revision: channel.revision } });
+      expect(result.status()).toBe(200);
+    }
+  }
+});

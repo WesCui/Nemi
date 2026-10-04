@@ -11,8 +11,12 @@ type State = {
 };
 export function FeishuDocuments({
   onImported,
+  setupOnly = false,
+  onConnected,
 }: {
   onImported?: (id: string) => Promise<void>;
+  setupOnly?: boolean;
+  onConnected?: () => Promise<void>;
 }) {
   const [state, setState] = useState<State | null>(null);
   const [editing, setEditing] = useState(false);
@@ -67,7 +71,7 @@ export function FeishuDocuments({
         )}
       </div>
       <p className="muted">
-        把一份已授权的飞书 docx 文档导入为事项资料，再整理清单、安排提醒。
+        {setupOnly ? "连接后，把文档链接发给妮米，直接在对话里总结、分析或准备工作。首次授权需要你或飞书管理员提供应用信息。" : "把一份已授权的飞书 docx 文档导入为事项资料，再整理清单、安排提醒。"}
       </p>
       {state && (!state.configured || editing) && (
         <form
@@ -90,6 +94,7 @@ export function FeishuDocuments({
               setAppID("");
               setEditing(false);
               await load();
+              await onConnected?.();
             });
           }}
         >
@@ -131,13 +136,13 @@ export function FeishuDocuments({
             Webhook 不能用于读取文档。
           </small>
           <div className="model-form-actions">
-            <a
+            {!setupOnly && <a
               href="https://open.feishu.cn/app"
               target="_blank"
               rel="noopener noreferrer"
             >
               飞书开放平台 <ArrowUpRight size={13} />
-            </a>
+            </a>}
             {state.configured && (
               <button
                 className="text-button"
@@ -164,7 +169,8 @@ export function FeishuDocuments({
           </div>
         </form>
       )}
-      {state?.configured && !editing && (
+      {setupOnly && state?.configured && !editing && <div className="model-receipt"><p>文档连接已配置；是否有读取权限，以实际读取结果为准。</p><button className="primary" type="button" disabled={busy} onClick={() => void action(async () => { await onConnected?.(); })}>完成连接，继续对话</button></div>}
+      {!setupOnly && state?.configured && !editing && (
         <form
           className="matter-form"
           onSubmit={(e) => {

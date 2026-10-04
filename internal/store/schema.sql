@@ -106,3 +106,7 @@ CREATE TABLE IF NOT EXISTS agent_actions (
  created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,id), FOREIGN KEY(workspace_id,run_id) REFERENCES runs(workspace_id,id)
 );
 INSERT INTO schema_versions(version) VALUES(7) ON CONFLICT DO NOTHING;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS context_summary text NOT NULL DEFAULT '';
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS summary_through int NOT NULL DEFAULT 0 CHECK(summary_through>=0);
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS task_plan jsonb;
+INSERT INTO schema_versions(version) VALUES(8) ON CONFLICT DO NOTHING;

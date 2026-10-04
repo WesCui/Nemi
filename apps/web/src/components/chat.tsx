@@ -1,16 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, LoaderCircle, Plus, Settings2 } from "lucide-react";
+import { ArrowUp, LoaderCircle, Plus, Settings2, Square } from "lucide-react";
 import { api } from "@/lib/api";
 import { ModelOverview, modelFailure } from "@/components/models";
+import { AgentAppAction } from "@/components/agent-apps";
 
 type Conversation = { id: string; title: string; updated_at: string };
 type Step = { position: number; kind: string; name: string; status: string; error: string };
-type Proposal = { id: string; kind: string; status: string; result_id: string; payload: { title: string; source: string; category: string; deadline?: string; reminder_at?: string; quiet: boolean; repeat: string; repeat_until?: string } };
-type Turn = { run_id: string; text: string; reply: string; status: string; error: string; model: string; steps: Step[]; actions: Proposal[] };
-type Detail = { conversation: Conversation; turns: Turn[] };
-const toolNames: Record<string, string> = { model: "调用模型", get_current_time: "读取北京时间", list_matters: "查询事项", get_matter: "读取事项资料", list_memories: "读取个人偏好", list_connections: "查询应用状态", read_feishu_document: "读取飞书文档", propose_matter: "准备事项与提醒提案" };
+type Proposal = { id: string; kind: string; status: string; result_id: string; dispatch_status?: string; payload: { title: string; source: string; category: string; deadline?: string; reminder_at?: string; quiet: boolean; repeat: string; repeat_until?: string; app_id?: string; channel_id?: string; recipient_label?: string; text?: string } };
+type Plan = { goal: string; steps: { title: string; status: string }[] };
+type Turn = { run_id: string; text: string; reply: string; status: string; error: string; model: string; steps: Step[]; actions: Proposal[]; plan?: Plan };
+type Detail = { conversation: Conversation; turns: Turn[]; summary_through: number };
+const toolNames: Record<string, string> = { model: "调用模型", context_summary: "整理历史背景", update_plan: "更新任务计划", request_connection: "准备应用连接", propose_message: "准备群消息", get_current_time: "读取北京时间", list_matters: "查询事项", get_matter: "读取事项资料", list_memories: "读取个人偏好", list_connections: "查询应用状态", read_feishu_document: "读取飞书文档", propose_matter: "准备事项与提醒提案" };
 const stepStatuses: Record<string, string> = { CALLING: "进行中", SUCCEEDED: "完成", FAILED: "失败", UNKNOWN: "结果未确定" };
 function chinaTime(value: string) { return new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }); }
 
@@ -59,6 +61,8 @@ export function Chat({ models, draft, onDraft, onConfigure, sync, reset }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [stopping, setStopping] = useState("");
+  const stopKeys = useRef<Record<string, string>>({});
   const selected = useRef("");
   const initialized = useRef(false);
   const version = useRef(0);
@@ -122,21 +126,35 @@ export function Chat({ models, draft, onDraft, onConfigure, sync, reset }: {
   }
   async function send(e: React.FormEvent) {
     e.preventDefault();
-    if (!draft.trim() || busy || pending || loading) return;
+    await submit(draft.trim(), true);
+  }
+  async function submit(text: string, clearDraft: boolean) {
+    if (!text || busy || pending || loading) return;
     if (!configured) { onConfigure(); return; }
     setBusy(true); setError("");
     const destination = selectionVersion.current;
     try {
-      const body = { conversation_id: selected.current, text: draft.trim(), model_id: modelID };
+      const body = { conversation_id: selected.current, text, model_id: modelID };
       const serialized = JSON.stringify(body);
       if (command.current?.body !== serialized) command.current = { body: serialized, key: crypto.randomUUID() };
       const result = await api<{ conversation_id: string; run_id: string }>("/chat/messages", body, "POST", command.current.key);
       if (destination !== selectionVersion.current) { await load(); return; }
       selected.current = result.conversation_id; initialized.current = true; setID(result.conversation_id);
-      onDraft(""); command.current = null;
+      if (clearDraft) onDraft(""); command.current = null;
       await load();
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
+  }
+  async function stop(run: string) {
+    if (stopping) return;
+    const destination = selectionVersion.current;
+    setStopping(run); setError("");
+    try {
+      stopKeys.current[run] ||= crypto.randomUUID();
+      await api(`/chat/runs/${run}/stop`, {}, "POST", stopKeys.current[run]);
+      await load();
+    } catch (e) { if (destination === selectionVersion.current) setError((e as Error).message); }
+    finally { setStopping(""); }
   }
   return <section className="chat-panel" aria-label="与妮米对话">
     <div className="chat-toolbar">
@@ -148,13 +166,16 @@ export function Chat({ models, draft, onDraft, onConfigure, sync, reset }: {
         <button className="text-button" type="button" disabled={busy} onClick={() => choose("")}><Plus size={15} />新对话</button>
       </div>
     </div>
+    {detail && detail.summary_through > 0 && <p className="chat-context-note">已整理较早的对话背景，完整记录仍保留在这里。</p>}
     {detail && <div className="chat-history" aria-label="对话内容" aria-live="polite" aria-busy={pending}>
       {detail.turns.map((turn) => <div className="chat-turn" key={turn.run_id}>
         <article className="chat-message user"><span className="chat-speaker">你</span><p>{turn.text}</p></article>
         <article className="chat-message assistant"><div className="chat-speaker">妮米 <small>{turn.model}</small></div>
           {turn.steps?.length > 0 && <details className="agent-steps"><summary>执行过程 · {turn.steps.length} 步</summary><ol>{turn.steps.map((step) => <li key={step.position}><span>{toolNames[step.name] || step.name}</span><small data-status={step.status}>{stepStatuses[step.status] || step.status}</small></li>)}</ol></details>}
+          {turn.plan && <details className="agent-plan" open={turn.status === "RUNNING"}><summary>任务计划 · {turn.plan.goal}</summary><ol>{turn.plan.steps.map((step, i) => <li key={i}><span>{step.title}</span><small data-status={step.status}>{{ pending: "待处理", in_progress: "进行中", completed: "已完成" }[step.status] || step.status}</small></li>)}</ol><small>妮米报告的工作进度；操作是否生效，以执行结果和你的确认状态为准。</small></details>}
           {turn.status === "SUCCEEDED" ? <p>{turn.reply}</p> : turn.status === "FAILED" ? <p className="form-error" role="alert">{modelFailure(turn.error)}</p> : <p className="chat-working"><LoaderCircle className="spin" size={15} />{turn.status === "QUEUED" ? "等待模型处理…" : "妮米正在处理…"}</p>}
-          {turn.actions?.map((action) => <ActionCard key={action.id} action={action} onChanged={load} />)}
+          {["QUEUED", "RUNNING"].includes(turn.status) && <button type="button" className="text-button chat-stop" disabled={Boolean(stopping)} onClick={() => void stop(turn.run_id)}><Square size={12} />{stopping === turn.run_id ? "正在停止…" : "停止本次任务"}</button>}
+          {turn.actions?.map((action) => action.kind === "create_matter" ? <ActionCard key={action.id} action={action} onChanged={load} /> : <AgentAppAction key={action.id} action={action} onChanged={load} canContinue={!busy && !pending && !loading} onContinue={() => submit("应用连接已完成，请继续刚才的任务。", false)} />)}
         </article>
       </div>)}<div ref={bottom} />
     </div>}

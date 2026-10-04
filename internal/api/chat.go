@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"nemi/internal/domain"
 	"nemi/internal/model"
+	"nemi/internal/store"
 )
 
 func (a *API) selectedGateway(ctx context.Context, tx pgx.Tx, w, id, kind string) (*model.Gateway, error) {
@@ -34,6 +35,17 @@ func (a *API) selectedGateway(ctx context.Context, tx pgx.Tx, w, id, kind string
 		return nil, err
 	}
 	return g.ForKind(kind), nil
+}
+func (a *API) stopChat(w http.ResponseWriter, r *http.Request) {
+	var body struct{}
+	raw, err := decode(w, r, &body)
+	if err != nil || len(r.PathValue("id")) != 32 {
+		sendError(w, 400, "停止请求无效")
+		return
+	}
+	a.command(w, r, raw, func(tx pgx.Tx) (any, int, error) {
+		return a.Store.StopChatRun(r.Context(), tx, store.Ref{Workspace: identity(r).Workspace, ID: r.PathValue("id")})
+	})
 }
 func (a *API) conversations(w http.ResponseWriter, r *http.Request) {
 	list, err := a.Store.Conversations(r.Context(), identity(r).Workspace)

@@ -59,6 +59,7 @@ func (a *API) Handler() http.Handler {
 	m.Handle("GET /api/v1/conversations", a.auth(http.HandlerFunc(a.conversations)))
 	m.Handle("GET /api/v1/conversations/{id}", a.auth(http.HandlerFunc(a.conversation)))
 	m.Handle("POST /api/v1/chat/messages", a.auth(http.HandlerFunc(a.chat)))
+	m.Handle("POST /api/v1/chat/runs/{id}/stop", a.auth(http.HandlerFunc(a.stopChat)))
 	m.Handle("POST /api/v1/agent/actions/{id}/{decision}", a.auth(http.HandlerFunc(a.decideAgentAction)))
 	m.Handle("GET /api/v1/connections", a.auth(http.HandlerFunc(a.connections)))
 	m.Handle("PUT /api/v1/connections/{id}", a.auth(http.HandlerFunc(a.saveConnection)))
@@ -205,12 +206,12 @@ func (a *API) command(w http.ResponseWriter, r *http.Request, b []byte, fn func(
 		case strings.HasPrefix(e.Error(), "MODEL_"):
 			sendError(w, 412, "模型尚未配置或已不可用，请在首页模型配置中填写有效的 API Key")
 		case strings.HasPrefix(e.Error(), "CHAT_"):
-			messages := map[string]string{"CHAT_QUEUE_FULL": "待处理对话较多，请稍后再发送", "CHAT_LIMIT_REACHED": "已达到 100 段对话的上限", "CHAT_TURN_LIMIT": "这段对话已达到 200 轮，请开始新对话", "CHAT_INPUT_TOO_LARGE": "消息内容过长，请缩短后发送"}
+			messages := map[string]string{"CHAT_QUEUE_FULL": "待处理对话较多，请稍后再发送", "CHAT_LIMIT_REACHED": "已达到 100 段对话的上限", "CHAT_TURN_LIMIT": "这段对话已达到 200 轮，请开始新对话", "CHAT_INPUT_TOO_LARGE": "消息内容过长，请缩短后发送", "CHAT_CONTEXT_TOO_LARGE": "这段历史超过单次整理上限，请开始新对话并提供关键背景"}
 			sendError(w, 422, messages[e.Error()])
 		case errors.Is(e, domain.ErrMemoryLimit):
 			sendError(w, 409, "最多保存 50 条偏好，请先整理已有内容")
-		case e.Error()=="ACTION_INVALID":
-			sendError(w,422,"提案内容或时间已不可用，请让妮米重新准备后确认")
+		case e.Error() == "ACTION_INVALID":
+			sendError(w, 422, "提案内容或时间已不可用，请让妮米重新准备后确认")
 		case strings.HasPrefix(e.Error(), "DOCUMENT_"):
 			messages := map[string]string{"DOCUMENT_AUTH_OR_NETWORK_FAILED": "飞书应用认证或网络请求失败，请检查凭据与应用发布状态", "DOCUMENT_PERMISSION_OR_CONTENT_FAILED": "无法读取此文档，请检查应用的文档读取权限并将文档授权给应用", "DOCUMENT_EMPTY": "此文档没有可导入的文本", "DOCUMENT_TOO_LARGE": "文档超过 12000 字节，请选用较短的文档或手动粘贴需要的段落"}
 			message := messages[e.Error()]

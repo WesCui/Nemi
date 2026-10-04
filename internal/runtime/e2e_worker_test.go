@@ -54,17 +54,49 @@ func TestE2EWorkerService(t *testing.T) {
 		}
 		content := `{"summary":"核对出行资料","items":["确认出发时间、同行人数与预算","核实开放时间与交通","准备证件和充电设备"]}`
 		var toolCall any
-		if !strings.Contains(body.Messages[0].Content, "仅输出 JSON") {
+		if strings.Contains(body.Messages[0].Content, "会话整理器") {
+			var snapshot struct {
+				Previous string                           `json:"previous_summary"`
+				History  []struct{ Role, Content string } `json:"completed_history"`
+			}
+			if err := json.Unmarshal([]byte(body.Messages[1].Content), &snapshot); err != nil {
+				return nil, err
+			}
+			content = snapshot.Previous
+			if content == "" {
+				for _, m := range snapshot.History {
+					if m.Role == "user" {
+						content = "历史约束：" + m.Content
+						break
+					}
+				}
+			}
+		} else if !strings.Contains(body.Messages[0].Content, "仅输出 JSON") {
 			last := body.Messages[len(body.Messages)-1].Content
+			if last == "执行可停止的任务" {
+				select {
+				case <-r.Context().Done():
+					return nil, r.Context().Err()
+				case <-time.After(15 * time.Second):
+				}
+			}
 			if strings.Contains(last, "触发认证失败") {
 				return &http.Response{StatusCode: 401, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"fixture authentication failed"}}`))}, nil
 			}
 			if body.Messages[len(body.Messages)-1].Role == "tool" {
-				if strings.Contains(last, `"status":"PENDING"`) {
+				if strings.Contains(last, `"progress_only":true`) {
+					content = "已经记录工作计划。"
+				} else if strings.Contains(last, `"status":"PENDING"`) {
 					content = "已准备好提案，请确认后创建。"
 				} else {
 					content = "事项查询结果：" + last
 				}
+			} else if last == "连接企业微信" {
+				toolCall = map[string]any{"id": "fixture_connect", "type": "function", "function": map[string]string{"name": "request_connection", "arguments": `{"app_id":"wecom"}`}}
+			} else if last == "发送群消息" {
+				toolCall = map[string]any{"id": "fixture_message", "type": "function", "function": map[string]string{"name": "propose_message", "arguments": `{"channel_id":"wecom","text":"请核对这份工作安排。"}`}}
+			} else if last == "制定任务计划" {
+				toolCall = map[string]any{"id": "fixture_plan", "type": "function", "function": map[string]string{"name": "update_plan", "arguments": `{"goal":"规划周末出行","steps":[{"title":"核对预算","status":"completed"},{"title":"比较方案","status":"in_progress"},{"title":"交付建议","status":"pending"}]}`}}
 			} else if strings.HasPrefix(last, "帮我创建一个事项：") {
 				at := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
 				args, _ := json.Marshal(map[string]any{"title": strings.TrimPrefix(last, "帮我创建一个事项："), "category": "life", "source": "收好物品并整理书桌", "reminder_at": at, "repeat": "once"})

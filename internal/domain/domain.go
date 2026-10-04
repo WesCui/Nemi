@@ -33,8 +33,26 @@ type Plan struct {
 	Items   []string `json:"items"`
 }
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role     string `json:"role"`
+	Content  string `json:"content"`
+	Position int    `json:"position,omitempty"`
+}
+
+// ChatContext is an immutable run snapshot. Summary only covers successful
+// turns through SummaryThrough; History contains every later successful turn.
+type ChatContext struct {
+	Summary        string        `json:"summary"`
+	SummaryThrough int           `json:"summary_through"`
+	CompactThrough int           `json:"compact_through"`
+	History        []ChatMessage `json:"history"`
+}
+type TaskPlan struct {
+	Goal  string         `json:"goal"`
+	Steps []TaskPlanStep `json:"steps"`
+}
+type TaskPlanStep struct {
+	Title  string `json:"title"`
+	Status string `json:"status"`
 }
 type AgentStep struct {
 	Position int    `json:"position"`
@@ -44,12 +62,20 @@ type AgentStep struct {
 	Error    string `json:"error"`
 }
 type AgentAction struct {
-	ID       string          `json:"id"`
-	RunID    string          `json:"run_id"`
-	Kind     string          `json:"kind"`
-	Payload  json.RawMessage `json:"payload"`
-	Status   string          `json:"status"`
-	ResultID string          `json:"result_id"`
+	DispatchStatus string          `json:"dispatch_status,omitempty"`
+	ID             string          `json:"id"`
+	RunID          string          `json:"run_id"`
+	Kind           string          `json:"kind"`
+	Payload        json.RawMessage `json:"payload"`
+	Status         string          `json:"status"`
+	ResultID       string          `json:"result_id"`
+}
+type AgentMessage struct {
+	Title     string `json:"title"`
+	Channel   string `json:"channel_id"`
+	Text      string `json:"text"`
+	Revision  int    `json:"config_revision"`
+	Recipient string `json:"recipient_label"`
 }
 
 // Agent proposals cannot grant their own approval or choose a workspace.
