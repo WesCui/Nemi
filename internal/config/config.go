@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"nemi/internal/connectors"
 	"os"
 	"strconv"
 )
@@ -9,6 +10,8 @@ import (
 type Config struct {
 	DB, Temporal, Listen, Origin, Invite, Provider, Model, Key string
 	InputPrice, OutputPrice                                    int64
+	Bots                                                       map[string]connectors.Bot
+	RunQueue, ReminderQueue                                    string
 }
 
 func env(k, d string) string {
@@ -22,6 +25,9 @@ func Load() (Config, error) {
 	if env("APP_ENV", "development") != "development" {
 		return c, fmt.Errorf("this first slice supports private development only; production identity is not implemented")
 	}
+	c.Bots = connectors.LoadEnv()
+	c.RunQueue = env("TEMPORAL_RUN_QUEUE", "nemi-runtime-v1")
+	c.ReminderQueue = env("TEMPORAL_REMINDER_QUEUE", "nemi-notification-v1")
 	if c.DB == "" || len(c.Invite) < 16 {
 		return c, fmt.Errorf("DATABASE_URL and an APP_INVITE_CODE of at least 16 characters are required")
 	}

@@ -3,6 +3,7 @@ module nemi
 go 1.26.0
 
 require (
+	github.com/arran4/golang-ical v0.3.7
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/stretchr/testify v1.10.0
 	github.com/teambition/rrule-go v1.8.2

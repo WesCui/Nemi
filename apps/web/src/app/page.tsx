@@ -22,9 +22,7 @@ import {
   Menu,
   MessageCircle,
   Plus,
-  Sparkles,
   Sun,
-  Unplug,
   X,
 } from "lucide-react";
 import {
@@ -49,6 +47,8 @@ import {
   SourceEditor,
 } from "@/components/assistant-next";
 
+import { ConnectionsPanel, MatterApplications } from "@/components/connections";
+
 type View =
   | "today"
   | "matters"
@@ -59,11 +59,8 @@ type View =
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`brand ${compact ? "compact" : ""}`}>
-      <span className="brand-mark">
-        <i />
-        <i />
-        <i />
-        <i />
+      <span className="brand-mark" aria-hidden="true">
+        n.
       </span>
       <span>
         Nemi<span className="brand-cn">妮米</span>
@@ -186,7 +183,7 @@ export default function Home() {
     { id: "reminders", title: "提醒", icon: Bell },
     { id: "activity", title: "工作动态", icon: Activity },
     { id: "memory", title: "生活偏好", icon: Brain },
-    { id: "connections", title: "连接应用", icon: Unplug },
+    { id: "connections", title: "连接应用", icon: Compass },
   ] as const;
   async function logout() {
     try {
@@ -234,15 +231,8 @@ export default function Home() {
           ))}
         </nav>
         <div className="sidebar-note">
-          <span className="little-spark">
-            <Sparkles size={16} />
-          </span>
-          <p>
-            一件一件，
-            <br />
-            把生活安排妥当。
-          </p>
-          <small>你的个人生活助理</small>
+          <span>PERSONAL SPACE</span>
+          <p>事项 · 时间 · 应用</p>
         </div>
         <div className="profile">
           <span className="avatar">你</span>
@@ -312,31 +302,21 @@ export default function Home() {
           {view === "today" && (
             <>
               <section className="hero">
-                <div className="eyebrow">
-                  <Sun size={15} />
-                  <Today />
+                <div>
+                  <div className="eyebrow">
+                    <Today />
+                  </div>
+                  <h1>今天的安排</h1>
+                  <p>记录计划，留意时间，推进手头的事。</p>
                 </div>
-                <h1>
-                  把惦记的事，
-                  <br />
-                  <span>交给妮米。</span>
-                </h1>
-                <p>
-                  记住一个提醒，准备一次出行，跟进一件小事。
-                  <br className="mobile-break" />
-                  从你现在想到的那件事开始。
-                </p>
-                <div className="hero-decoration" aria-hidden="true">
-                  <div className="orbit orbit-one" />
-                  <div className="orbit orbit-two" />
-                  <div className="floating-dot dot-one" />
-                  <div className="floating-dot dot-two" />
-                  <span className="hero-leaf">
-                    <Leaf size={40} strokeWidth={1.3} />
-                  </span>
-                  <div className="mini-note">
-                    <Check size={13} />
-                    安排妥当
+                <div className="hero-ledger">
+                  <div>
+                    <b>{active.length.toString().padStart(2, "0")}</b>
+                    <span>正在跟进</span>
+                  </div>
+                  <div>
+                    <b>{pending.length.toString().padStart(2, "0")}</b>
+                    <span>待提醒</span>
                   </div>
                 </div>
               </section>
@@ -355,13 +335,13 @@ export default function Home() {
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   maxLength={6000}
-                  placeholder="妮米，帮我准备下周的旅行，出发前提醒我检查行李…"
+                  placeholder="记下接下来要做的事…"
                   rows={3}
                 />
                 <div className="composer-footer">
                   <span>
                     <MessageCircle size={15} />
-                    说说你的计划，保存前再确认时间
+                    内容与时间，保存前由你确认
                   </span>
                   <button
                     type="submit"
@@ -401,10 +381,10 @@ export default function Home() {
               <div className="section-heading">
                 <div>
                   <h2>
-                    正在惦记的事{" "}
+                    正在跟进{" "}
                     <span>{active.length.toString().padStart(2, "0")}</span>
                   </h2>
-                  <p>给每件事一个清楚的下一步。</p>
+                  <p>你的计划与下一步。</p>
                 </div>
                 <button
                   className="text-button"
@@ -456,18 +436,17 @@ export default function Home() {
                     </p>
                   )}
                 </section>
-                <section className="gentle-card">
-                  <Sparkles size={22} />
-                  <h3>
-                    少一点挂念，
-                    <br />
-                    多一点自己的时间。
-                  </h3>
-                  <p>
-                    从一件小事开始，
-                    <br />
-                    慢慢建立你的生活节奏。
-                  </p>
+                <section className="application-shortcut">
+                  <span className="section-kicker">APPLICATIONS</span>
+                  <h3>常用应用</h3>
+                  <p>查地点、导出日历，或把清单发到接收群。</p>
+                  <button
+                    className="text-button"
+                    onClick={() => setView("connections")}
+                  >
+                    打开应用
+                    <ArrowRight size={15} />
+                  </button>
                 </section>
               </div>
             </>
@@ -619,43 +598,7 @@ export default function Home() {
             <ActivityPanel data={data} onSelect={setSelected} />
           )}
           {view === "connections" && (
-            <>
-              <PageHeading
-                title="连接应用"
-                description="把你选定的内容带给妮米，生活与工作各有边界。"
-              />
-              <Notice>
-                <Unplug size={17} />
-                连接器仍在开发中。当前可以在事项中粘贴你有权使用的文字资料。
-              </Notice>
-              <div className="connections-grid">
-                {[
-                  {
-                    name: "飞书",
-                    short: "飞",
-                    class: "feishu",
-                    text: "个人承诺、选定文档与日程。先支持单条消息，再按授权读取内容。",
-                  },
-                  {
-                    name: "企业微信",
-                    short: "企",
-                    class: "wecom",
-                    text: "通过机器人提交本人事项。工作群里的内容与私人生活记录分别处理。",
-                  },
-                ].map((c) => (
-                  <article className="connection-card" key={c.name}>
-                    <span className={`app-icon ${c.class}`}>{c.short}</span>
-                    <span className="coming-tag">尚未接入</span>
-                    <h3>{c.name}</h3>
-                    <p>{c.text}</p>
-                    <div className="connection-foot">
-                      后续开放授权试点
-                      <ChevronRight size={15} />
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </>
+            <ConnectionsPanel matters={data.matters} />
           )}
           <footer className="page-footer">
             <span>Nemi · 妮米</span>
@@ -709,7 +652,7 @@ function Today() {
       ),
     [],
   );
-  return <span>{text} · 给生活留点余地</span>;
+  return <span>{text}</span>;
 }
 function Login({ onLogin }: { onLogin: () => Promise<void> }) {
   const [code, setCode] = useState("");
@@ -733,46 +676,35 @@ function Login({ onLogin }: { onLogin: () => Promise<void> }) {
       <section className="login-story">
         <Brand />
         <div className="login-copy">
-          <span className="eyebrow">
-            <Sparkles size={15} />
-            你的个人生活助理
-          </span>
+          <span className="section-kicker">A PLACE FOR YOUR EVERYDAY</span>
           <h1>
-            生活里的大小事，
+            为日常，
             <br />
-            有妮米一起惦记。
+            留一页。
           </h1>
           <p>
-            想做的事，有下一步。
+            事项、提醒与常用应用，
             <br />
-            重要的时间，有人记得。
+            在一个安静的空间里。
           </p>
-          <div className="login-illustration" aria-hidden="true">
-            <div className="illustration-note">
-              <span>
-                <Compass size={18} />
-                周末的小旅行
-              </span>
-              <div>
-                <Check size={15} />
-                整理出发前的准备清单
-              </div>
-              <div>
-                <Bell size={15} />
-                记住你确认的提醒时间
-              </div>
+          <div className="login-index">
+            <div>
+              <span>01</span>记录计划
             </div>
-            <span className="illustration-spark">
-              <Sparkles size={30} />
-            </span>
+            <div>
+              <span>02</span>确认时间
+            </div>
+            <div>
+              <span>03</span>应用协作
+            </div>
           </div>
         </div>
-        <small>一件一件，把生活安排妥当。</small>
+        <small>NEMI / PERSONAL ASSISTANT</small>
       </section>
       <section className="login-form-panel">
         <div className="login-form">
           <Brand compact />
-          <h2>你好，欢迎来到 Nemi</h2>
+          <h2>进入个人空间</h2>
           <p>输入邀请口令，打开你的个人空间。</p>
           <form onSubmit={(e) => void submit(e)}>
             <label htmlFor="invite">邀请口令</label>
@@ -805,10 +737,7 @@ function Login({ onLogin }: { onLogin: () => Promise<void> }) {
           </form>
           <div className="login-footnote">
             <CircleHelp size={15} />
-            <p>
-              私有开发体验版，当前仅提供一个本人空间。模型由服务端配置，你无需填写
-              API Key。
-            </p>
+            <p>本地开发体验版，仅限本人使用。</p>
           </div>
         </div>
       </section>
@@ -1425,7 +1354,7 @@ function MatterDialog({
             }
             onClick={() => void generate()}
           >
-            <Sparkles size={15} />
+            <ListTodo size={15} />
             {m.items.length ? "重新整理清单" : "帮我整理清单"}
           </button>
           {m.items.length > 0 && (
@@ -1473,6 +1402,12 @@ function MatterDialog({
           }}
         />
       )}
+      <MatterApplications
+        matter={m}
+        calendarAvailable={
+          m.status === "ACTIVE" && (!!m.deadline || !!reminder?.enabled)
+        }
+      />
       <div className="modal-actions">
         <button className="secondary" onClick={onClose}>
           关闭

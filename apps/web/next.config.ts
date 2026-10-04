@@ -3,6 +3,8 @@ import path from "node:path";
 
 const config: NextConfig = {
   poweredByHeader: false,
+  devIndicators: false,
+  distDir: process.env.NEMI_WEB_DIST_DIR || ".next",
   outputFileTracingRoot: path.resolve(process.cwd(), "../.."),
   async rewrites() {
     return [

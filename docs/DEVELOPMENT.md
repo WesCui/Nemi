@@ -34,7 +34,7 @@ mkdir -p data
 
 Bash 验证命令：
 
-浏览器测试使用本机已安装的 Google Chrome；后端、Web 与全部 Worker 均需先启动，Web 默认使用演示模式。
+浏览器测试使用本机已安装的 Google Chrome。先启动原生 PG / Temporal 并准备 nemi_test，构建二进制后用隔离 runner；runner 自行启动测试 API / Web / Worker / Relay，使用随机独立队列与演示生成，结束后停止自己启动的进程。测试端口为 18080 / 3310，Web 缓存为 .next-e2e，不改动用户库。
 
 ```bash
 source scripts/env.sh
@@ -42,14 +42,17 @@ export TEST_DATABASE_URL='postgres://nemi:nemi_dev_only@127.0.0.1:55432/nemi_tes
 export TEST_TEMPORAL_ADDRESS=127.0.0.1:7233
 go test -count=1 ./...
 go vet ./...
-export NEMI_TEST_INVITE_CODE="$APP_INVITE_CODE"
-export NEMI_BASE_URL="$APP_ORIGIN"
-npm run test:e2e
+bash scripts/build.sh
+npm run test:e2e:isolated
 ```
 
 下方 PowerShell 命令保留作可选参考；Bash 环境脚本按字面值读取 `.env`，不会把其中的内容当脚本执行。
 
-## v0.2 功能使用
+## v0.3 应用与界面
+
+高德搜索、单次日历导出和三平台群机器人发送的配置与使用见 [国内应用接入](./INTEGRATIONS.md)。可选凭证只填本地 .env；更改后重启 API。群名必须对应真实接收群，平台规则和实际回执需本人核对。提醒仍留在站内，尚未自动连接外部群。
+
+## 延续的生活助理功能
 
 - **生活偏好**：新增内容、选择场景、确认保存。支持修改和移除；生成清单前可取消“参考已确认的偏好”。仅保存用户确认的内容，不自动从对话提取。
 - **持续跟进**：打开事项，使用“补充或修改资料”。保存后可重新整理清单；更新资料不会自动覆盖已有清单。

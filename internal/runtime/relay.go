@@ -50,7 +50,11 @@ func dispatchTo(ctx context.Context, c client.Client, o store.Outbox, runQueue, 
 	}
 	return e
 }
-func Relay(ctx context.Context, s *store.Store, c client.Client) error {
+func Relay(ctx context.Context, s *store.Store, c client.Client, queues ...string) error {
+	runQueue, reminderQueue := RunQueue, ReminderQueue
+	if len(queues) == 2 {
+		runQueue, reminderQueue = queues[0], queues[1]
+	}
 	for {
 		if ctx.Err() != nil {
 			return nil
@@ -68,7 +72,7 @@ func Relay(ctx context.Context, s *store.Store, c client.Client) error {
 			continue
 		}
 		callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		e = Dispatch(callCtx, c, *o)
+		e = dispatchTo(callCtx, c, *o, runQueue, reminderQueue)
 		cancel()
 		if e != nil {
 			slog.Warn("outbox dispatch deferred", "kind", o.Kind)

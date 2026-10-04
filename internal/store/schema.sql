@@ -55,3 +55,10 @@ CREATE TABLE IF NOT EXISTS memories (
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS memory_refs jsonb NOT NULL DEFAULT '[]';
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS used_memory_count int NOT NULL DEFAULT 0;
 INSERT INTO schema_versions(version) VALUES(3) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS connector_dispatches (
+ workspace_id text NOT NULL REFERENCES workspaces(id), key text NOT NULL, connector_id text NOT NULL,
+ body_hash bytea NOT NULL, status text NOT NULL CHECK(status IN ('SENDING','DELIVERED','REJECTED','UNKNOWN')),
+ created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,key)
+);
+CREATE INDEX IF NOT EXISTS connector_dispatch_quota ON connector_dispatches(workspace_id,created_at);
+INSERT INTO schema_versions(version) VALUES(4) ON CONFLICT DO NOTHING;

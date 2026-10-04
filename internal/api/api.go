@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"nemi/internal/config"
+	"nemi/internal/connectors"
 	"nemi/internal/domain"
 	"nemi/internal/model"
 	"nemi/internal/store"
@@ -26,6 +27,7 @@ type API struct {
 	Hub     *Hub
 	Config  config.Config
 	Gateway *model.Gateway
+	Bots    *connectors.Sender
 	mu      sync.Mutex
 	logins  map[string]loginWindow
 }
@@ -36,6 +38,9 @@ type loginWindow struct {
 type identityKey struct{}
 
 func (a *API) Handler() http.Handler {
+	if a.Bots == nil {
+		a.Bots = connectors.New(a.Config.Bots)
+	}
 	a.logins = map[string]loginWindow{}
 	m := http.NewServeMux()
 	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { send(w, 200, map[string]bool{"ok": true}) })
@@ -45,6 +50,9 @@ func (a *API) Handler() http.Handler {
 		send(w, 200, map[string]any{"user": identity(r), "model_mode": a.Gateway.Mode()})
 	})))
 	m.Handle("GET /api/v1/dashboard", a.auth(http.HandlerFunc(a.dashboard)))
+	m.Handle("GET /api/v1/connections", a.auth(http.HandlerFunc(a.connections)))
+	m.Handle("POST /api/v1/connections/{id}/messages", a.auth(http.HandlerFunc(a.sendMessage)))
+	m.Handle("GET /api/v1/matters/{id}/calendar", a.auth(http.HandlerFunc(a.calendar)))
 	m.Handle("GET /api/v1/events", a.auth(http.HandlerFunc(a.events)))
 	m.Handle("POST /api/v1/matters", a.auth(http.HandlerFunc(a.createMatter)))
 	m.Handle("PATCH /api/v1/matters/{id}", a.auth(http.HandlerFunc(a.editMatter)))

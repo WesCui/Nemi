@@ -10,12 +10,12 @@ import (
 )
 
 func main() {
-	_, s, t := bootstrap.Open()
+	c, s, t := bootstrap.Open()
 	defer s.Pool.Close()
 	defer t.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if e := runtime.Relay(ctx, s, t); e != nil {
+	if e := runtime.Relay(ctx, s, t, c.RunQueue, c.ReminderQueue); e != nil {
 		slog.Error("relay failed")
 		os.Exit(1)
 	}

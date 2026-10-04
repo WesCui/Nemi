@@ -1,19 +1,20 @@
 # Nemi 的开源复用与设计参考
 
-日期：2026-10-04。v0.2 按“能直接复用则接入，架构差异大则借鉴合同”的原则开发；不会把阅读某个项目描述为已经集成它。
+日期：2026-10-04。v0.3 按“能直接复用则接入，架构差异大则借鉴合同”的原则开发；不会把阅读某个项目描述为已经集成它。
 
 ## 本轮实际复用
 
 | 组件 | 接入方式 | 用途 / 边界 |
 | --- | --- | --- |
 | [teambition/rrule-go](https://github.com/teambition/rrule-go) | Go 依赖固定 v1.8.2；MIT | 直接计算 RFC 5545 日历日期。Nemi 仅开放每天、周一至周五、每周，不向模型开放任意规则字符串 |
+| [golang-ical](https://github.com/arran4/golang-ical) | 直接依赖 v0.3.7；Apache-2.0 | 单次 iCalendar 事件序列化、转义与折行；不手写 ICS 格式 |
 | [Temporal Go SDK](https://github.com/temporalio/sdk-go) | 继续使用 v1.49.0；MIT | 持久计时、任务重放、Activity 重试和唯一工作流 ID；不自行开发持久执行引擎 |
 | [pgx](https://github.com/jackc/pgx) | 继续使用 v5.7.6 | PG 事务、连接池和类型化查询，业务事实与幂等仍在 PG |
 | [Lucide](https://github.com/lucide-icons/lucide) | 继续使用 lucide-react v0.468.0 | 新的偏好、工作动态、编辑和移除图标，沿用现有视觉组件 |
 
 `rrule-go` 的日期计算接入见 `internal/domain/recurrence.go`。Nemi 自己负责用户确认、结束日期、免打扰、版本检查、漏发策略和通知幂等；这些是应用合同，不是另写一个日历算法。提醒与模型生成使用不同队列，提醒到点不调用 LLM。
 
-新增依赖的完整 [rrule-go MIT notice](./licenses/rrule-go.txt)与现有 [Temporal SDK MIT notice](./licenses/temporal-go-sdk.txt)随仓库保存，并进入后端 Docker 镜像的 `/usr/share/licenses/nemi`。未复制开源项目的业务源码；直接依赖版本和完整传递依赖由 `go.mod` / `go.sum`、npm lockfiles 记录。
+新增依赖的完整 [rrule-go MIT notice](./licenses/rrule-go.txt)与现有 [Temporal SDK MIT notice](./licenses/temporal-go-sdk.txt)以及 [golang-ical Apache-2.0 license](./licenses/golang-ical.txt)随仓库保存，并进入后端 Docker 镜像的 `/usr/share/licenses/nemi`。未复制开源项目的业务源码；直接依赖版本和完整传递依赖由 `go.mod` / `go.sum`、npm lockfiles 记录。
 
 ## 已调研、作为设计参考
 
@@ -32,7 +33,7 @@ Nemi 借鉴显式范围和可管理的记忆接口。v0.2 的偏好只有用户�
 ### 后续复用顺序
 
 1. 先实现真实供应商的有界工具调用合同，再评估与 Go 主执行器兼容的 Agent SDK；不把另一个无限 Agent Loop 直接嵌进 Worker。
-2. 飞书 / 企微接入优先官方 SDK 与授权 API，从单条消息入口开始，不把通用个人微信抓取当官方能力。
+2. 本版三平台群消息复用官方 Webhook 协议与 Go HTTP / crypto 标准库；只发送文字，不为一个端点引入整套办公 SDK。后续用户 OAuth、文档 / 日历读取优先官方 SDK 与授权 API，不把群机器人当作读取权限。
 3. 文件流程使用成熟 PDF / OCR 与对象存储组件，同时保留来源和权限；高风险执行进入独立工具池。
 4. 需要云端浏览器时评估 Playwright 与现成的沙箱 Broker，单独验证隔离和接管，再开放生活场景。
 

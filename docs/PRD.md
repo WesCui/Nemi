@@ -1,6 +1,6 @@
 # 国内个人生活助理产品需求文档
 
-版本：v0.3 · 日期：2026-10-04 · 状态：目标设计；代码已推进至 v0.2 持续生活助理开发版，完成范围与验证见 [实施状态](./IMPLEMENTATION.md)
+版本：v0.3 · 日期：2026-10-04 · 状态：目标设计；代码已推进至 v0.3 私有开发切片，完成范围与验证见 [实施状态](./IMPLEMENTATION.md)
 
 项目名称 **Nemi / 妮米**；Agent OS / Cloud Runtime 是工程底座名称，不作为面向大众用户的主标题。配套见 [技术架构](./ARCHITECTURE.md)、[dots 功能对标调研](./DOTS_BENCHMARK.md) 和 [使用场景与办公接入调研](./SCENARIO_RESEARCH.md)。原开发者平台方案存于 [v0.1 存档](./archive/v0.1/PRD.md)。
 

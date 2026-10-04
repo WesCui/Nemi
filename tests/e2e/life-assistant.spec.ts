@@ -9,9 +9,7 @@ test.beforeEach(async ({ page }, info) => {
   await page.goto("/");
   await page.getByLabel("邀请口令").fill(code);
   await page.getByRole("button", { name: "进入我的空间" }).click();
-  await expect(
-    page.getByRole("heading", { name: /把惦记的事，\s*交给妮米。/ }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "今天的安排" })).toBeVisible();
   const mode = await page.request.get("/api/v1/me");
   expect((await mode.json()).model_mode).toBe("demo");
 });
@@ -92,9 +90,9 @@ test("mobile layout and honest connector states", async ({ page }) => {
   });
   await page.getByRole("button", { name: "打开导航" }).click();
   await page.getByRole("button", { name: "连接应用", exact: true }).click();
-  await expect(page.getByText("尚未接入", { exact: true })).toHaveCount(2);
+  await expect(page.getByText("待配置", { exact: true })).toHaveCount(3);
   await expect(
-    page.getByRole("heading", { name: "飞书", exact: true }),
+    page.getByRole("heading", { name: "高德地图", exact: true }),
   ).toBeVisible();
   expect(
     await page.evaluate(

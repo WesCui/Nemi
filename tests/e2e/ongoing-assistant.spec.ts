@@ -8,9 +8,7 @@ test.beforeEach(async ({ page }, info) => {
   await page.goto("/");
   await page.getByLabel("邀请口令").fill(code);
   await page.getByRole("button", { name: "进入我的空间" }).click();
-  await expect(
-    page.getByRole("heading", { name: /把惦记的事，\s*交给妮米。/ }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "今天的安排" })).toBeVisible();
 });
 
 test("ongoing matter with confirmed preferences, a bounded schedule and activity", async ({
