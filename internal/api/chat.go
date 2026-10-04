@@ -69,12 +69,16 @@ func (a *API) conversation(w http.ResponseWriter, r *http.Request) {
 }
 func (a *API) chat(w http.ResponseWriter, r *http.Request) {
 	var b struct {
-		Conversation string `json:"conversation_id"`
-		Text         string `json:"text"`
-		Model        string `json:"model_id"`
+		Conversation string   `json:"conversation_id"`
+		Text         string   `json:"text"`
+		Model        string   `json:"model_id"`
+		Files        []string `json:"file_ids"`
 	}
 	raw, err := decode(w, r, &b)
 	b.Text = strings.TrimSpace(b.Text)
+	if b.Text == "" && len(b.Files) > 0 {
+		b.Text = "请读取我提供的附件，说明主要内容，并帮我梳理接下来可以做的事。"
+	}
 	if err != nil || b.Text == "" || len(b.Text) > 6000 || !utf8.ValidString(b.Text) || len(b.Conversation) > 100 || len(b.Model) > 128 {
 		sendError(w, 400, "请输入消息，单条不超过 6000 字节")
 		return
@@ -85,6 +89,6 @@ func (a *API) chat(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, 0, err
 		}
-		return a.Store.CreateChatRun(r.Context(), tx, ws, b.Conversation, b.Text, g.Mode(), g.Profile(), g.ConfigID)
+		return a.Store.CreateChatRun(r.Context(), tx, ws, b.Conversation, b.Text, g.Mode(), g.Profile(), g.ConfigID, b.Files)
 	})
 }

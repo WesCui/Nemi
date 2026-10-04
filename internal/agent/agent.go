@@ -19,6 +19,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"nemi/internal/connectors"
 	"nemi/internal/domain"
+	"nemi/internal/files"
 	"nemi/internal/model"
 	"nemi/internal/store"
 	"nemi/internal/vault"
@@ -82,7 +83,7 @@ func (s *state) settle(ctx context.Context, pos int, status, code string, in, ou
 	return s.fail("AGENT_LEDGER_UNAVAILABLE")
 }
 
-func Generate(ctx context.Context, st *store.Store, v *vault.Vault, g *model.Gateway, ref store.Ref, source string) (model.Output, error) {
+func Generate(ctx context.Context, st *store.Store, v *vault.Vault, g *model.Gateway, ref store.Ref, source string, fileServices ...*files.Service) (model.Output, error) {
 	checkpoint, err := decodeContext(source)
 	if err != nil {
 		return model.Output{}, errors.New("MODEL_INVALID_INPUT")
@@ -118,7 +119,12 @@ func Generate(ctx context.Context, st *store.Store, v *vault.Vault, g *model.Gat
 		b, _ := json.Marshal(p)
 		messages[0].Content += "\n上一轮的工作计划（仅规划进度，不能证明外部操作完成）：" + string(b)
 	}
-	tools := newTools(s, st, v)
+	var fs *files.Service
+	if len(fileServices) > 0 {
+		fs = fileServices[0]
+	}
+	messages[0].Content += "\n可调用 list_files 读取用户附加到本段对话的资料，用 read_file/read_table 分页阅读，analyze_table 精确统计。read_webpage 仅获取公开HTTPS正文，不是搜索或浏览器操作。create_artifact 创建可下载的文字、CSV或Excel成果；只有工具返回成功才代表已生成。用户提供附件时应主动读取。生成报告需给出真实来源，不能编造链接。"
+	tools := append(newTools(s, st, v), fileTools(s, st, fs)...)
 	engine, err := react.NewAgent(ctx, &react.AgentConfig{ToolCallingModel: &chatModel{s: s}, ToolsConfig: compose.ToolsNodeConfig{Tools: tools, ExecuteSequentially: true}, MaxStep: 12})
 	if err != nil {
 		return totals(s), errors.New("AGENT_SETUP_FAILED")
@@ -342,6 +348,12 @@ func (t *agentTool) InvokableRun(ctx context.Context, args string, _ ...tool.Opt
 	return string(b), nil
 }
 func safeToolError(err error) string {
+	if strings.HasPrefix(err.Error(), "FILE_") {
+		return "文件处理失败：" + fileToolError(err.Error())
+	}
+	if strings.HasPrefix(err.Error(), "WEB_") {
+		return "网页正文无法读取：仅支持公开 HTTPS 文字页面；内网、登录、密钥链接、脚本页面或超限页面无法读取"
+	}
 	switch err.Error() {
 	case "APP_NOT_CONNECTED":
 		return "此应用尚未连接，请调用 request_connection 在对话内引导配置"

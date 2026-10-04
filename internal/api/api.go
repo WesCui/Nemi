@@ -18,6 +18,7 @@ import (
 	"nemi/internal/config"
 	"nemi/internal/connectors"
 	"nemi/internal/domain"
+	"nemi/internal/files"
 	"nemi/internal/model"
 	"nemi/internal/store"
 	"nemi/internal/vault"
@@ -31,6 +32,7 @@ type API struct {
 	Bots      *connectors.Sender
 	Vault     *vault.Vault
 	Documents *connectors.FeishuDocuments
+	Files     *files.Service
 	mu        sync.Mutex
 	logins    map[string]loginWindow
 }
@@ -59,6 +61,8 @@ func (a *API) Handler() http.Handler {
 	m.Handle("GET /api/v1/conversations", a.auth(http.HandlerFunc(a.conversations)))
 	m.Handle("GET /api/v1/conversations/{id}", a.auth(http.HandlerFunc(a.conversation)))
 	m.Handle("POST /api/v1/chat/messages", a.auth(http.HandlerFunc(a.chat)))
+	m.Handle("POST /api/v1/files", a.auth(http.HandlerFunc(a.uploadFile)))
+	m.Handle("GET /api/v1/files/{id}/{view}", a.auth(http.HandlerFunc(a.fileContent)))
 	m.Handle("POST /api/v1/chat/runs/{id}/stop", a.auth(http.HandlerFunc(a.stopChat)))
 	m.Handle("POST /api/v1/agent/actions/{id}/{decision}", a.auth(http.HandlerFunc(a.decideAgentAction)))
 	m.Handle("GET /api/v1/connections", a.auth(http.HandlerFunc(a.connections)))
@@ -89,13 +93,18 @@ func (a *API) Handler() http.Handler {
 				sendError(w, 403, "请求来源不受信任")
 				return
 			}
-			if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+			upload := r.Method == "POST" && r.URL.Path == "/api/v1/files" && strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data;")
+			if !upload && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 				sendError(w, 415, "请使用 JSON 请求")
 				return
 			}
 		}
 		if r.URL.Path != "/api/v1/events" {
-			ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+			duration := 15 * time.Second
+			if r.URL.Path == "/api/v1/files" {
+				duration = 30 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), duration)
 			defer cancel()
 			r = r.WithContext(ctx)
 		}
@@ -212,6 +221,8 @@ func (a *API) command(w http.ResponseWriter, r *http.Request, b []byte, fn func(
 			sendError(w, 409, "最多保存 50 条偏好，请先整理已有内容")
 		case e.Error() == "ACTION_INVALID":
 			sendError(w, 422, "提案内容或时间已不可用，请让妮米重新准备后确认")
+		case strings.HasPrefix(e.Error(), "FILE_"):
+			sendError(w, 422, "附件无效，请重新上传或选择自己的文件；每条消息最多4个附件")
 		case strings.HasPrefix(e.Error(), "DOCUMENT_"):
 			messages := map[string]string{"DOCUMENT_AUTH_OR_NETWORK_FAILED": "飞书应用认证或网络请求失败，请检查凭据与应用发布状态", "DOCUMENT_PERMISSION_OR_CONTENT_FAILED": "无法读取此文档，请检查应用的文档读取权限并将文档授权给应用", "DOCUMENT_EMPTY": "此文档没有可导入的文本", "DOCUMENT_TOO_LARGE": "文档超过 12000 字节，请选用较短的文档或手动粘贴需要的段落"}
 			message := messages[e.Error()]

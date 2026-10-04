@@ -4,6 +4,7 @@ import (
 	"go.temporal.io/sdk/worker"
 	"log/slog"
 	"nemi/internal/bootstrap"
+	"nemi/internal/files"
 	"nemi/internal/model"
 	"nemi/internal/runtime"
 	"nemi/internal/vault"
@@ -21,7 +22,12 @@ func main() {
 		slog.Error("credential vault unavailable")
 		os.Exit(1)
 	}
-	w.RegisterActivity(&runtime.Activities{Store: s, Gateway: model.New(c), Vault: v})
+	f, e := files.New(c, s, v)
+	if e != nil {
+		slog.Error("file storage configuration unavailable")
+		os.Exit(1)
+	}
+	w.RegisterActivity(&runtime.Activities{Store: s, Gateway: model.New(c), Vault: v, Files: f})
 	if e := w.Run(worker.InterruptCh()); e != nil {
 		slog.Error("runtime worker failed")
 		os.Exit(1)

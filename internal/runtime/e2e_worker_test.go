@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 	"nemi/internal/config"
+	"nemi/internal/files"
 	"nemi/internal/model"
 	"nemi/internal/store"
 	"nemi/internal/vault"
@@ -44,6 +46,10 @@ func TestE2EWorkerService(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := model.New(c)
+	fs, err := files.New(c, s, v)
+	if err != nil {
+		t.Fatal(err)
+	}
 	g.HTTP.Transport = personalTransport(func(r *http.Request) (*http.Response, error) {
 		var body struct {
 			Messages []struct{ Role, Content string }
@@ -73,6 +79,12 @@ func TestE2EWorkerService(t *testing.T) {
 			}
 		} else if !strings.Contains(body.Messages[0].Content, "仅输出 JSON") {
 			last := body.Messages[len(body.Messages)-1].Content
+			fileWorkflow := false
+			for _, m := range body.Messages {
+				if m.Role == "user" && m.Content == "统计这份账单并生成Excel汇总" {
+					fileWorkflow = true
+				}
+			}
 			if last == "执行可停止的任务" {
 				select {
 				case <-r.Context().Done():
@@ -83,7 +95,45 @@ func TestE2EWorkerService(t *testing.T) {
 			if strings.Contains(last, "触发认证失败") {
 				return &http.Response{StatusCode: 401, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"fixture authentication failed"}}`))}, nil
 			}
-			if body.Messages[len(body.Messages)-1].Role == "tool" {
+			if fileWorkflow {
+				name, args := "list_files", "{}"
+				if body.Messages[len(body.Messages)-1].Role == "tool" {
+					var value map[string]json.RawMessage
+					if json.Unmarshal([]byte(last), &value) != nil {
+						return nil, fmt.Errorf("invalid file tool output")
+					}
+					if raw, ok := value["files"]; ok {
+						var list []struct {
+							ID string `json:"id"`
+						}
+						json.Unmarshal(raw, &list)
+						if len(list) == 0 {
+							return nil, fmt.Errorf("no attached file")
+						}
+						name = "analyze_table"
+						args = fmt.Sprintf(`{"file_id":%q,"table":0,"column":1,"has_header":true}`, list[0].ID)
+					} else if raw, ok := value["groups"]; ok {
+						var groups []struct {
+							Sum string `json:"sum"`
+						}
+						json.Unmarshal(raw, &groups)
+						if len(groups) != 1 {
+							return nil, fmt.Errorf("unexpected statistics")
+						}
+						name = "create_artifact"
+						encoded, _ := json.Marshal(map[string]string{"name": "生活账单汇总.xlsx", "content": "项目,金额\n合计," + groups[0].Sum + "\n"})
+						args = string(encoded)
+					} else if _, ok := value["id"]; ok {
+						name = ""
+						content = "已统计完整账单并生成 Excel 汇总，请在对话中预览或下载。"
+					} else {
+						return nil, fmt.Errorf("file workflow failed")
+					}
+				}
+				if name != "" {
+					toolCall = map[string]any{"id": "fixture_file_" + name, "type": "function", "function": map[string]string{"name": name, "arguments": args}}
+				}
+			} else if body.Messages[len(body.Messages)-1].Role == "tool" {
 				if strings.Contains(last, `"progress_only":true`) {
 					content = "已经记录工作计划。"
 				} else if strings.Contains(last, `"status":"PENDING"`) {
@@ -106,7 +156,7 @@ func TestE2EWorkerService(t *testing.T) {
 			} else {
 				content = "收到：" + last
 			}
-			if len(body.Messages) > 2 && body.Messages[len(body.Messages)-1].Role != "tool" {
+			if !fileWorkflow && len(body.Messages) > 2 && body.Messages[len(body.Messages)-1].Role != "tool" {
 				content += "；前文：" + body.Messages[1].Content
 			}
 		}
@@ -124,7 +174,7 @@ func TestE2EWorkerService(t *testing.T) {
 	defer engine.Close()
 	w := worker.New(engine, c.RunQueue, worker.Options{})
 	w.RegisterWorkflow(RunWorkflow)
-	w.RegisterActivity(&Activities{Store: s, Gateway: g, Vault: v})
+	w.RegisterActivity(&Activities{Store: s, Gateway: g, Vault: v, Files: fs})
 	if err = w.Run(worker.InterruptCh()); err != nil {
 		t.Fatal(err)
 	}

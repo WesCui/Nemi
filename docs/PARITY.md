@@ -1,6 +1,6 @@
 # 对标功能状态与国内落地
 
-日期：2026-10-05，代码 v0.7。依据 [OpenAI dots 官方介绍](https://learn.chatgpt.com/docs/dots)、[任务与记忆](https://learn.chatgpt.com/docs/dots/tasks-and-memory)和[控制](https://learn.chatgpt.com/docs/dots/controls)核对公开产品合同，内部实现未知。
+日期：2026-10-05，代码 v0.8。依据 [OpenAI dots 官方介绍](https://learn.chatgpt.com/docs/dots)、[任务与记忆](https://learn.chatgpt.com/docs/dots/tasks-and-memory)和[控制](https://learn.chatgpt.com/docs/dots/controls)核对公开产品合同，内部实现未知。
 
 | 公开能力方向 | Nemi 当前状态 | 国内产品落地 |
 | --- | --- | --- |
@@ -13,7 +13,7 @@
 | 自有云端电脑与浏览器接管 | 待开发 | 浏览器沙箱、登录会话隔离和用户接管 |
 | 子任务委派 / 主动唤醒 | 待开发 | 有界任务 DAG、关注条件、变化通知 |
 | 跨渠道消息与语音 | 待开发 | 微信小程序、办公应用事件、国内 ASR / TTS |
-| 文件与分析产物 | Markdown / ICS 已有；上传、OCR、PDF、表格待开发 | 材料识别、账单整理、共享文件 |
+| 文件与分析产物 | 附件、公开网页、PDF/DOCX 正文、表格精确统计、文字/Excel 成果已交付；OCR 与复杂计算待开发 | 材料整理、账单汇总、报告交付 |
 | 自定义模型 | 首页个人模型、真实多轮对话与 Eino 工具调用已交付，无 Key 阻止生成 | 五个国内供应商，所选模型与密钥固定到任务 |
 
 用户提供的 [Meta Muse 上手文章](https://juejin.cn/post/7688982503374602276)已确认对标对象为 Meta Muse。[Meta 官方介绍](https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/)说明其持久云端电脑、浏览器操作、后台目标推进、记忆和敏感操作确认。Nemi 将这些作为能力目标；当前尚未达到 Muse 等价实现。
@@ -24,3 +24,5 @@
 
 
 v0.7 增加会话 harness 与对话驱动的应用连接 / 消息操作，详见 [harness](./HARNESS.md)。首次授权仍需用户或管理员，未知回执不重发。未实现完整云端电脑、浏览器、全平台 OAuth 或可验证长期任务完成条件。
+
+v0.8 增加 [对话资料与成果](./FILES.md)；完整目标仍持续推进，缺口和证据见 [目标跟踪](./GOAL_AUDIT.md)。

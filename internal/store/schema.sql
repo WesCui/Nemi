@@ -110,3 +110,15 @@ ALTER TABLE conversations ADD COLUMN IF NOT EXISTS context_summary text NOT NULL
 ALTER TABLE conversations ADD COLUMN IF NOT EXISTS summary_through int NOT NULL DEFAULT 0 CHECK(summary_through>=0);
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS task_plan jsonb;
 INSERT INTO schema_versions(version) VALUES(8) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS workspace_files (
+ workspace_id text NOT NULL REFERENCES workspaces(id), id text NOT NULL, name text NOT NULL,
+ kind text NOT NULL CHECK(kind IN ('upload','artifact','web')), mime text NOT NULL, size bigint NOT NULL CHECK(size>0),
+ origin_url text NOT NULL DEFAULT '', storage text NOT NULL CHECK(storage IN ('local','s3')), object_key text NOT NULL,
+ deleted boolean NOT NULL DEFAULT false, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,id)
+);
+CREATE TABLE IF NOT EXISTS chat_run_files (
+ workspace_id text NOT NULL, run_id text NOT NULL, file_id text NOT NULL, role text NOT NULL CHECK(role IN ('input','output')),
+ PRIMARY KEY(workspace_id,run_id,file_id), FOREIGN KEY(workspace_id,run_id) REFERENCES runs(workspace_id,id),
+ FOREIGN KEY(workspace_id,file_id) REFERENCES workspace_files(workspace_id,id)
+);
+INSERT INTO schema_versions(version) VALUES(9) ON CONFLICT DO NOTHING;

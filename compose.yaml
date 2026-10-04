@@ -10,6 +10,13 @@ x-app: &app
     APP_LISTEN: 0.0.0.0:8080
     APP_CREDENTIAL_KEY: ${APP_CREDENTIAL_KEY:-}
     APP_CREDENTIAL_KEY_FILE: /app/data/credentials.key
+    APP_FILES_ROOT: /app/data/files
+    FILES_S3_ENDPOINT: ${FILES_S3_ENDPOINT:-}
+    FILES_S3_BUCKET: ${FILES_S3_BUCKET:-}
+    FILES_S3_ACCESS_KEY: ${FILES_S3_ACCESS_KEY:-}
+    FILES_S3_SECRET_KEY: ${FILES_S3_SECRET_KEY:-}
+    FILES_S3_REGION: ${FILES_S3_REGION:-us-east-1}
+    FILES_S3_SECURE: ${FILES_S3_SECURE:-true}
     DATABASE_URL: postgres://nemi:nemi_dev_only@postgres:5432/nemi?sslmode=disable
     TEMPORAL_ADDRESS: temporal:7233
     MODEL_PROVIDER: ${MODEL_PROVIDER:-}

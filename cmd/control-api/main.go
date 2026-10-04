@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"nemi/internal/api"
 	"nemi/internal/config"
+	"nemi/internal/files"
 	"nemi/internal/model"
 	"nemi/internal/store"
 	"nemi/internal/vault"
@@ -43,7 +44,12 @@ func main() {
 		slog.Error("credential vault unavailable")
 		os.Exit(1)
 	}
-	a := &api.API{Store: s, Hub: h, Config: c, Gateway: model.New(c), Vault: v}
+	f, e := files.New(c, s, v)
+	if e != nil {
+		slog.Error("file storage configuration unavailable")
+		os.Exit(1)
+	}
+	a := &api.API{Store: s, Hub: h, Config: c, Gateway: model.New(c), Vault: v, Files: f}
 	server := &http.Server{Addr: c.Listen, Handler: a.Handler(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
 	go func() {
 		<-ctx.Done()

@@ -18,7 +18,7 @@ if [[ -f "$NEMI_TASK_ROOT/.env" ]]; then
       nemi_env_key="${BASH_REMATCH[1]}"
       nemi_env_value="${BASH_REMATCH[2]}"
       case "$nemi_env_key" in
-        APP_*|CONNECTOR_*|DATABASE_URL|TEMPORAL_*|MODEL_*|TEST_DATABASE_URL|TEST_TEMPORAL_ADDRESS|NEMI_BASE_URL)
+        APP_*|CONNECTOR_*|FILES_S3_*|DATABASE_URL|TEMPORAL_*|MODEL_*|TEST_DATABASE_URL|TEST_TEMPORAL_ADDRESS|NEMI_BASE_URL)
           export "$nemi_env_key=$nemi_env_value" ;;
       esac
     fi

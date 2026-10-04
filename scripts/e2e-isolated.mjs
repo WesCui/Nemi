@@ -31,6 +31,8 @@ const env = {
 env.NEMI_TEST_INVITE_CODE = env.APP_INVITE_CODE;
 const suffix = randomUUID().slice(0, 8);
 env.APP_BOOTSTRAP_ID = `nemi-e2e-${suffix}`;
+env.APP_FILES_ROOT = path.join(root,`.cache/e2e-${suffix}/files`);
+for (const key of Object.keys(env)) if (key.startsWith("FILES_S3_")) delete env[key];
 env.APP_OUTBOX_WORKSPACE = env.APP_BOOTSTRAP_ID;
 env.TEMPORAL_RUN_QUEUE = `nemi-e2e-${suffix}-runtime`;
 env.TEMPORAL_REMINDER_QUEUE = `nemi-e2e-${suffix}-reminders`;
@@ -100,7 +102,7 @@ try {
   // All test services must share the current contracts; never use stale product
   // binaries or overwrite the binaries of the user's running local services.
   mkdirSync(testBin, { recursive: true });
-  for (const name of ["control-api", "notification-worker", "relay"])
+  for (const name of ["control-api", "notification-worker", "relay", "file-parser"])
     execFileSync("go", ["build", "-o", path.join(testBin, name + (process.platform === "win32" ? ".exe" : "")), `./cmd/${name}`], { cwd: root, env, stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
   for (const name of [
     "control-api",

@@ -17,6 +17,7 @@ type Conversation struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 type ChatTurn struct {
+	Files     []domain.File        `json:"files"`
 	Plan      *domain.TaskPlan     `json:"plan,omitempty"`
 	Steps     []domain.AgentStep   `json:"steps"`
 	Actions   []domain.AgentAction `json:"actions"`
@@ -120,12 +121,31 @@ func (s *Store) Conversation(ctx context.Context, w, id string) (ChatDetail, err
 		i := index[a.RunID]
 		d.Turns[i].Actions = append(d.Turns[i].Actions, a)
 	}
-	return d, actions.Err()
+	err = actions.Err()
+	actions.Close()
+	if err != nil {
+		return d, err
+	}
+	fileRows, err := tx.Query(ctx, `SELECT b.run_id,f.id,f.name,f.kind,f.mime,f.size,f.origin_url,f.created_at FROM chat_run_files b JOIN workspace_files f ON f.workspace_id=b.workspace_id AND f.id=b.file_id JOIN chat_turns t ON t.workspace_id=b.workspace_id AND t.run_id=b.run_id WHERE t.workspace_id=$1 AND t.conversation_id=$2 AND NOT f.deleted ORDER BY t.position,f.created_at,f.id`, w, id)
+	if err != nil {
+		return d, err
+	}
+	defer fileRows.Close()
+	for fileRows.Next() {
+		var rid string
+		var f domain.File
+		if err = fileRows.Scan(&rid, &f.ID, &f.Name, &f.Kind, &f.MIME, &f.Size, &f.OriginURL, &f.CreatedAt); err != nil {
+			return d, err
+		}
+		i := index[rid]
+		d.Turns[i].Files = append(d.Turns[i].Files, f)
+	}
+	return d, fileRows.Err()
 }
 
 // A conversation turn and the immutable model/context snapshot commit with the
 // outbox. HTTP retries read the same run; only one turn can be active per chat.
-func (s *Store) CreateChatRun(ctx context.Context, tx pgx.Tx, w, conversation, text, mode, profile, modelID string) (any, int, error) {
+func (s *Store) CreateChatRun(ctx context.Context, tx pgx.Tx, w, conversation, text, mode, profile, modelID string, attachments ...[]string) (any, int, error) {
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", w+":chat-admission"); err != nil {
 		return nil, 0, err
 	}
@@ -225,6 +245,11 @@ func (s *Store) CreateChatRun(ctx context.Context, tx pgx.Tx, w, conversation, t
 	}
 	if _, err = tx.Exec(ctx, "INSERT INTO chat_turns(workspace_id,conversation_id,run_id,position,user_text) VALUES($1,$2,$3,$4,$5)", w, conversation, id, position, text); err != nil {
 		return nil, 0, err
+	}
+	if len(attachments) > 0 {
+		if err = bindChatFiles(ctx, tx, w, id, attachments[0]); err != nil {
+			return nil, 0, err
+		}
 	}
 	if _, err = tx.Exec(ctx, "UPDATE conversations SET updated_at=now() WHERE workspace_id=$1 AND id=$2", w, conversation); err != nil {
 		return nil, 0, err

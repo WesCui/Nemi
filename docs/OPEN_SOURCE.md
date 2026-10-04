@@ -40,6 +40,10 @@ Nemi 借鉴显式范围和可管理的记忆接口。v0.2 的偏好只有用户�
 上述是下一阶段评估顺序，不表示对应能力已经交付。对标基于 dots 的[任务与记忆](https://learn.chatgpt.com/docs/dots/tasks-and-memory)和[控制与活动](https://learn.chatgpt.com/docs/dots/controls)公开合同，不推定其内部实现。
 
 
+## v0.8 资料组件实际复用
+
+v0.8 新增实际依赖：[Excelize](https://github.com/qax-os/excelize) v2.11.0（BSD-3-Clause），用于 XLSX 读取和成果写入；[ledongthuc/pdf](https://github.com/ledongthuc/pdf) 固定 6c8c28e0e8a0（BSD-3-Clause），用于文本 PDF；[Readeck Readability](https://codeberg.org/readeck/go-readability) v2.1.3（MIT），用于受控 HTTP 获取后的 HTML 正文提取；[MinIO Go](https://github.com/minio/minio-go) v7.3.0（Apache-2.0），用于私有 S3 兼容对象。没有使用已弃用的 go-shiori/go-readability 主模块，没有复制业务源码；四个完整许可证保存于 docs/licenses 并进入后端镜像。DOCX 主体 XML 使用 Go 标准库，文件存储、权限、账本和出站控制由 Nemi 实现。范围见 [FILES](./FILES.md)，S3 协议测试不代替真实云服务验收。
+
 ## v0.4 飞书实际复用
 
 直接依赖飞书官方 larksuite/oapi-sdk-go v3.12.0（MIT），复用自建应用授权与 docx raw_content 服务。仅初始化 auth / docx 服务，避免编译无关业务模块；Nemi 负责凭据加密、出站约束、日志脱敏、响应大小、权限错误、确认导入与事务去重。未接入 SDK 的自动渠道发送、隐式重发或 WebSocket 事件。完整许可证存于 licenses/larksuite-oapi-sdk-go-MIT.txt 并随镜像交付。

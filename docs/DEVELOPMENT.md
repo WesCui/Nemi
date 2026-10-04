@@ -19,6 +19,8 @@ source scripts/env.sh
 
 之后独立终端分别启动：
 
+首次运行先执行 `bash scripts/build.sh`，它构建四个服务和第五个 `file-parser` 辅助程序。`go run` 模式下上传会使用仓库 `.cache/bin` 的解析器；部署时解析器须与 control-api 相邻。两种模式均需共享文件目录与 Vault 主密钥。S3 配置与备份范围见 [资料合同](./FILES.md)。
+
 ```bash
 npm run db
 ```

@@ -1,19 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, LoaderCircle, Plus, Settings2, Square } from "lucide-react";
+import { ArrowUp, LoaderCircle, Paperclip, Plus, Settings2, Square } from "lucide-react";
 import { api } from "@/lib/api";
 import { ModelOverview, modelFailure } from "@/components/models";
 import { AgentAppAction } from "@/components/agent-apps";
+import { ChatFile, FileCard, upload } from "@/components/chat-files";
 
 type Conversation = { id: string; title: string; updated_at: string };
 type Step = { position: number; kind: string; name: string; status: string; error: string };
 type Proposal = { id: string; kind: string; status: string; result_id: string; dispatch_status?: string; payload: { title: string; source: string; category: string; deadline?: string; reminder_at?: string; quiet: boolean; repeat: string; repeat_until?: string; app_id?: string; channel_id?: string; recipient_label?: string; text?: string } };
 type Plan = { goal: string; steps: { title: string; status: string }[] };
-type Turn = { run_id: string; text: string; reply: string; status: string; error: string; model: string; steps: Step[]; actions: Proposal[]; plan?: Plan };
+type Turn = { run_id: string; text: string; reply: string; status: string; error: string; model: string; steps: Step[]; actions: Proposal[]; plan?: Plan; files?: ChatFile[] };
 type Detail = { conversation: Conversation; turns: Turn[]; summary_through: number };
 const toolNames: Record<string, string> = { model: "调用模型", context_summary: "整理历史背景", update_plan: "更新任务计划", request_connection: "准备应用连接", propose_message: "准备群消息", get_current_time: "读取北京时间", list_matters: "查询事项", get_matter: "读取事项资料", list_memories: "读取个人偏好", list_connections: "查询应用状态", read_feishu_document: "读取飞书文档", propose_matter: "准备事项与提醒提案" };
 const stepStatuses: Record<string, string> = { CALLING: "进行中", SUCCEEDED: "完成", FAILED: "失败", UNKNOWN: "结果未确定" };
+Object.assign(toolNames,{ list_files:"查看对话资料", read_file:"读取文件正文", read_table:"读取表格", analyze_table:"统计完整表格", create_artifact:"生成成果文件", read_webpage:"读取公开网页" });
 function chinaTime(value: string) { return new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }); }
 
 function ActionCard({ action, onChanged }: { action: Proposal; onChanged: () => Promise<void> }) {
@@ -62,6 +64,9 @@ export function Chat({ models, draft, onDraft, onConfigure, sync, reset }: {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [stopping, setStopping] = useState("");
+  const [attachments, setAttachments] = useState<ChatFile[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
   const stopKeys = useRef<Record<string, string>>({});
   const selected = useRef("");
   const initialized = useRef(false);
@@ -76,7 +81,7 @@ export function Chat({ models, draft, onDraft, onConfigure, sync, reset }: {
     version.current++;
     selectionVersion.current++;
     selected.current = ""; initialized.current = true;
-    setID(""); setDetail(null); setError(""); onDraft(""); command.current = null; setLoading(false);
+    setID(""); setDetail(null); setError(""); onDraft(""); command.current = null; setLoading(false); setAttachments([]);
   }, [reset, onDraft]);
   const load = useCallback(async () => {
     const current = ++version.current;
@@ -121,26 +126,26 @@ export function Chat({ models, draft, onDraft, onConfigure, sync, reset }: {
     version.current++;
     selectionVersion.current++;
     selected.current = value; initialized.current = true;
-    setID(value); setDetail(null); setError(""); onDraft(""); command.current = null;
+    setID(value); setDetail(null); setError(""); onDraft(""); command.current = null; setAttachments([]);
     setLoading(Boolean(value)); void load();
   }
   async function send(e: React.FormEvent) {
     e.preventDefault();
-    await submit(draft.trim(), true);
+    await submit(draft.trim() || (attachments.length ? "请读取我提供的附件，说明主要内容，并帮我梳理接下来可以做的事。" : ""), true);
   }
   async function submit(text: string, clearDraft: boolean) {
-    if (!text || busy || pending || loading) return;
+    if (!text || busy || pending || loading || uploading) return;
     if (!configured) { onConfigure(); return; }
     setBusy(true); setError("");
     const destination = selectionVersion.current;
     try {
-      const body = { conversation_id: selected.current, text, model_id: modelID };
+      const body = { conversation_id: selected.current, text, model_id: modelID, file_ids: clearDraft ? attachments.map((f) => f.id) : [] };
       const serialized = JSON.stringify(body);
       if (command.current?.body !== serialized) command.current = { body: serialized, key: crypto.randomUUID() };
       const result = await api<{ conversation_id: string; run_id: string }>("/chat/messages", body, "POST", command.current.key);
       if (destination !== selectionVersion.current) { await load(); return; }
       selected.current = result.conversation_id; initialized.current = true; setID(result.conversation_id);
-      if (clearDraft) onDraft(""); command.current = null;
+      if (clearDraft) { onDraft(""); setAttachments([]); } command.current = null;
       await load();
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
@@ -169,11 +174,12 @@ export function Chat({ models, draft, onDraft, onConfigure, sync, reset }: {
     {detail && detail.summary_through > 0 && <p className="chat-context-note">已整理较早的对话背景，完整记录仍保留在这里。</p>}
     {detail && <div className="chat-history" aria-label="对话内容" aria-live="polite" aria-busy={pending}>
       {detail.turns.map((turn) => <div className="chat-turn" key={turn.run_id}>
-        <article className="chat-message user"><span className="chat-speaker">你</span><p>{turn.text}</p></article>
+        <article className="chat-message user"><span className="chat-speaker">你</span><p>{turn.text}</p>{turn.files?.filter((f) => f.kind === "upload").map((f) => <FileCard key={f.id} file={f} />)}</article>
         <article className="chat-message assistant"><div className="chat-speaker">妮米 <small>{turn.model}</small></div>
           {turn.steps?.length > 0 && <details className="agent-steps"><summary>执行过程 · {turn.steps.length} 步</summary><ol>{turn.steps.map((step) => <li key={step.position}><span>{toolNames[step.name] || step.name}</span><small data-status={step.status}>{stepStatuses[step.status] || step.status}</small></li>)}</ol></details>}
           {turn.plan && <details className="agent-plan" open={turn.status === "RUNNING"}><summary>任务计划 · {turn.plan.goal}</summary><ol>{turn.plan.steps.map((step, i) => <li key={i}><span>{step.title}</span><small data-status={step.status}>{{ pending: "待处理", in_progress: "进行中", completed: "已完成" }[step.status] || step.status}</small></li>)}</ol><small>妮米报告的工作进度；操作是否生效，以执行结果和你的确认状态为准。</small></details>}
           {turn.status === "SUCCEEDED" ? <p>{turn.reply}</p> : turn.status === "FAILED" ? <p className="form-error" role="alert">{modelFailure(turn.error)}</p> : <p className="chat-working"><LoaderCircle className="spin" size={15} />{turn.status === "QUEUED" ? "等待模型处理…" : "妮米正在处理…"}</p>}
+          {turn.files?.filter((f) => f.kind !== "upload").map((f) => <FileCard key={f.id} file={f} />)}
           {["QUEUED", "RUNNING"].includes(turn.status) && <button type="button" className="text-button chat-stop" disabled={Boolean(stopping)} onClick={() => void stop(turn.run_id)}><Square size={12} />{stopping === turn.run_id ? "正在停止…" : "停止本次任务"}</button>}
           {turn.actions?.map((action) => action.kind === "create_matter" ? <ActionCard key={action.id} action={action} onChanged={load} /> : <AgentAppAction key={action.id} action={action} onChanged={load} canContinue={!busy && !pending && !loading} onContinue={() => submit("应用连接已完成，请继续刚才的任务。", false)} />)}
         </article>
@@ -181,17 +187,31 @@ export function Chat({ models, draft, onDraft, onConfigure, sync, reset }: {
     </div>}
     {error && <p className="form-error" role="alert">{error}</p>}
     <form className="composer" onSubmit={(e) => void send(e)}>
+      {attachments.length > 0 && <div className="composer-attachments">{attachments.map((f) => <FileCard key={f.id} file={f} onRemove={() => { if (!busy && !uploading) setAttachments((list) => list.filter((v) => v.id !== f.id)); }} />)}</div>}
       <label htmlFor="composer" className="sr-only">告诉妮米你想做的事</label>
       <textarea id="composer" value={draft} onChange={(e) => onDraft(e.target.value)} maxLength={2000} rows={3} disabled={busy}
         placeholder="问妮米，或聊聊你想做的事…"
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
       <div className="composer-footer">
+        <input type="file" ref={fileInput} className="sr-only" aria-label="上传对话附件" accept=".pdf,.docx,.xlsx,.csv,.txt,.md,.json" multiple onChange={(e) => {
+          const chosen = Array.from(e.target.files || []); e.target.value = "";
+          if (!chosen.length || uploading) return;
+          if (attachments.length + chosen.length > 4) { setError("每条消息最多附加 4 个文件"); return; }
+          const destination = selectionVersion.current;
+          setUploading(true); setError("");
+          void (async () => {
+            try { for (const f of chosen) { const saved = await upload(f); if (destination === selectionVersion.current) setAttachments((list) => [...list, saved]); } }
+            catch (err) { if (destination === selectionVersion.current) setError((err as Error).message); }
+            finally { setUploading(false); }
+          })();
+        }} />
+        <button type="button" className="icon attachment-button" aria-label="添加附件" title="PDF、Word、Excel 或文字资料 · 每个最多 5 MB" disabled={busy || pending || uploading || attachments.length >= 4} onClick={() => fileInput.current?.click()}>{uploading ? <LoaderCircle size={17} className="spin" /> : <Paperclip size={17} />}</button>
         <select aria-label="对话使用的模型" value={modelID} disabled={busy || pending} onChange={(e) => setModelID(e.target.value)}>
           <option value="" disabled>请选择模型</option>
           {models.server_available && <option value="__server__">服务端模型</option>}
           {models.models.map((m) => <option key={m.id} value={m.id}>{m.label} · {m.model}</option>)}
         </select>
-        <button type="submit" className="send-button" aria-label="发送消息" disabled={!draft.trim() || busy || pending || loading}>
+        <button type="submit" className="send-button" aria-label="发送消息" disabled={(!draft.trim() && !attachments.length) || busy || pending || loading || uploading}>
           {busy ? <LoaderCircle size={18} className="spin" /> : <ArrowUp size={20} />}
         </button>
       </div>

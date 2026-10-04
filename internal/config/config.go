@@ -8,12 +8,14 @@ import (
 )
 
 type Config struct {
-	DB, Temporal, Listen, Origin, Invite, Provider, Model, Key string
-	InputPrice, OutputPrice                                    int64
-	Bots                                                       map[string]connectors.Bot
-	RunQueue, ReminderQueue                                    string
-	VaultKey, VaultPath                                        string
-	BootstrapID, OutboxWorkspace                               string
+	DB, Temporal, Listen, Origin, Invite, Provider, Model, Key                             string
+	InputPrice, OutputPrice                                                                int64
+	Bots                                                                                   map[string]connectors.Bot
+	RunQueue, ReminderQueue                                                                string
+	VaultKey, VaultPath                                                                    string
+	BootstrapID, OutboxWorkspace                                                           string
+	FilesRoot, FilesS3Endpoint, FilesS3Bucket, FilesS3Access, FilesS3Secret, FilesS3Region string
+	FilesS3Secure                                                                          bool
 }
 
 func env(k, d string) string {
@@ -32,6 +34,14 @@ func Load() (Config, error) {
 	c.OutboxWorkspace = os.Getenv("APP_OUTBOX_WORKSPACE")
 	c.VaultKey = os.Getenv("APP_CREDENTIAL_KEY")
 	c.VaultPath = env("APP_CREDENTIAL_KEY_FILE", "data/credentials.key")
+	c.FilesRoot = env("APP_FILES_ROOT", "data/files")
+	c.FilesS3Endpoint, c.FilesS3Bucket = os.Getenv("FILES_S3_ENDPOINT"), os.Getenv("FILES_S3_BUCKET")
+	c.FilesS3Access, c.FilesS3Secret = os.Getenv("FILES_S3_ACCESS_KEY"), os.Getenv("FILES_S3_SECRET_KEY")
+	c.FilesS3Region = env("FILES_S3_REGION", "us-east-1")
+	c.FilesS3Secure = env("FILES_S3_SECURE", "true") != "false"
+	if c.FilesS3Endpoint != "" && (c.FilesS3Bucket == "" || c.FilesS3Access == "" || c.FilesS3Secret == "") {
+		return c, fmt.Errorf("complete S3 file storage configuration required")
+	}
 	c.RunQueue = env("TEMPORAL_RUN_QUEUE", "nemi-runtime-v1")
 	c.ReminderQueue = env("TEMPORAL_REMINDER_QUEUE", "nemi-notification-v1")
 	if c.DB == "" || len(c.Invite) < 16 {

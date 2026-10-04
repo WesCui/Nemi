@@ -6,6 +6,7 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 	"nemi/internal/agent"
+	"nemi/internal/files"
 	"nemi/internal/model"
 	"nemi/internal/store"
 	"nemi/internal/vault"
@@ -17,6 +18,7 @@ type Activities struct {
 	Store   *store.Store
 	Gateway *model.Gateway
 	Vault   *vault.Vault
+	Files   *files.Service
 }
 
 func (a *Activities) Admit(ctx context.Context, r store.Ref) (Admission, error) {
@@ -84,7 +86,7 @@ func (a *Activities) Generate(ctx context.Context, r store.Ref) error {
 	}()
 	var out model.Output
 	if g.Kind == "chat" {
-		out, e = agent.Generate(executionCtx, a.Store, a.Vault, g, r, in.Source)
+		out, e = agent.Generate(executionCtx, a.Store, a.Vault, g, r, in.Source, a.Files)
 	} else {
 		out, e = g.Generate(ctx, in.Title, in.Source)
 	}
