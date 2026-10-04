@@ -1,0 +1,13 @@
+node_modules/
+.next/
+.cache/
+.env
+.env.local
+*.exe
+*.log
+test-results/
+playwright-report/
+data/
+coverage.out
+
+*.tsbuildinfo

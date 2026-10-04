@@ -1,0 +1,156 @@
+# Nemi 开发运行指南
+
+这是本机私有开发配置；`APP_ENV` 目前只接受 `development`。邀请口令登录只映射一个本人空间，不能发同一个口令给多个陌生人当作多用户系统。
+
+## 1. Windows 原生依赖
+
+后续开发首选 **Git Bash**。Windows 的 `bash` 命令可能指向 WSL，应打开已安装的 Git Bash，或明确使用 `C:/Program Files/Git/bin/bash.exe`。不需要安装 WSL。
+
+首次 clone 后在 Git Bash 中准备：
+
+```bash
+cp .env.example .env
+# 编辑 .env，设置 APP_INVITE_CODE，原生库使用 127.0.0.1:55432
+# 当前电脑 APP_ORIGIN 使用 http://localhost:3100
+npm ci
+bash scripts/install-temporal.sh
+source scripts/env.sh
+```
+
+之后独立终端分别启动：
+
+```bash
+npm run db
+```
+
+```bash
+mkdir -p data
+.cache/temporal/temporal.exe server start-dev --ip 127.0.0.1 --db-filename data/temporal.db --ui-port 8233
+```
+
+另外四个 Git Bash 终端先 `source scripts/env.sh`，再分别 `go run ./cmd/control-api`、`go run ./cmd/runtime-worker`、`go run ./cmd/notification-worker`、`go run ./cmd/relay`。最后在 `apps/web` 中执行 `npm ci` 和 `npm run dev -- --port 3100`。
+
+Bash 验证命令：
+
+浏览器测试使用本机已安装的 Google Chrome；后端、Web 与全部 Worker 均需先启动，Web 默认使用演示模式。
+
+```bash
+source scripts/env.sh
+export TEST_DATABASE_URL='postgres://nemi:nemi_dev_only@127.0.0.1:55432/nemi_test?sslmode=disable'
+export TEST_TEMPORAL_ADDRESS=127.0.0.1:7233
+go test -count=1 ./...
+go vet ./...
+export NEMI_TEST_INVITE_CODE="$APP_INVITE_CODE"
+export NEMI_BASE_URL="$APP_ORIGIN"
+npm run test:e2e
+```
+
+下方 PowerShell 命令保留作可选参考；Bash 环境脚本按字面值读取 `.env`，不会把其中的内容当脚本执行。
+
+在项目根目录执行：
+
+```powershell
+Copy-Item .env.example .env
+# 修改 APP_INVITE_CODE；原生 PostgreSQL 端口使用 55432：
+# DATABASE_URL=postgres://nemi:nemi_dev_only@127.0.0.1:55432/nemi?sslmode=disable
+npm ci
+./scripts/install-temporal.ps1
+```
+
+CLI 安装脚本固定 Temporal 1.9.1，并比对官方 release 的 SHA-256。PostgreSQL 开发包固定 17.10，依赖校验写入 package-lock.json；它是项目开发工具，不是生产安装方式。[Temporal 官方发行](https://github.com/temporalio/cli/releases/tag/v1.9.1)、[Embedded Postgres 项目](https://github.com/leinelissen/embedded-postgres)。
+
+打开单独终端启动数据库：
+
+```powershell
+npm run db
+```
+
+再打开单独终端，启动持久 Temporal 开发服务器：
+
+```powershell
+New-Item -ItemType Directory -Path data -Force
+.cache/temporal/temporal.exe server start-dev --ip 127.0.0.1 --db-filename data/temporal.db --ui-port 8233
+```
+
+## 2. 后端与 Web
+
+以下入口各在独立终端中运行，工作目录均为仓库根目录。API 首次启动会执行幂等 schema 迁移并初始化本地身份；Worker 在 API 初始化成功后启动。
+
+```powershell
+. ./scripts/env.ps1
+go run ./cmd/control-api
+```
+
+其余三个终端分别执行：
+
+```powershell
+. ./scripts/env.ps1
+go run ./cmd/runtime-worker
+```
+
+```powershell
+. ./scripts/env.ps1
+go run ./cmd/notification-worker
+```
+
+```powershell
+. ./scripts/env.ps1
+go run ./cmd/relay
+```
+
+Web 终端：
+
+```powershell
+cd apps/web
+npm ci
+npm run dev
+```
+
+访问 http://localhost:3000，输入 `.env` 中的邀请口令。`APP_ORIGIN` 必须与访问来源精确匹配；默认 `http://localhost:3000`，不要混用 `127.0.0.1`。
+
+## 3. 模型配置
+
+默认 `MODEL_PROVIDER=demo`：确定性演示清单，界面和导出均有提示，不发送网络请求，不计真实模型费用。
+
+要测试真实模型，配置 `qwen` 或 `deepseek`、实际获准的 `MODEL_NAME`、服务端 `MODEL_API_KEY`，并填写该型号当前价格。每百万 Token 的价格转换成 micro-CNY，例如 **仅作换算示例** ￥2 / 百万 Token = `2000000`，不是任何型号现价。密钥不放前端、不写日志、不进入 Temporal payload、不提交 Git。
+
+每次 Run 使用固定 provider / model Profile；运行中更改型号会使旧 Run 明确失败。v0.1 只做一次文本清单生成，没有图片、工具调用、搜索或供应商回退。实际区域、具体型号能力及输出质量须单独测试后才能宣传已支持。
+
+请求前预留费用：单 Run 上限 ￥1、个人北京时间自然日上限 ￥3、全局 5 / 每空间 2 个活跃模型工作。预算记录以整数 micro-CNY 存储。真实费用取供应商 usage；缺失 usage、网络响应丢失或 Activity 中断视为费用不确定，保留预留待后续核对。v0.1 不提供自动账单核对器。
+
+## 4. 测试
+
+```powershell
+. ./scripts/env.ps1
+$env:TEST_DATABASE_URL='postgres://nemi:nemi_dev_only@127.0.0.1:55432/nemi_test?sslmode=disable'
+go test -count=1 ./...
+go vet ./...
+```
+
+测试要求独立 `nemi_test` 数据库，不执行 DROP / TRUNCATE，不碰个人空间的真实数据。集成测试创建独立测试空间，保留在测试库以便核对。重新跑会产生新的测试记录。
+
+```powershell
+npx playwright install chromium
+$env:NEMI_TEST_INVITE_CODE=$env:APP_INVITE_CODE
+npm run test:e2e
+```
+
+浏览器测试需所有服务已运行，默认访问 `http://localhost:3000`；通过 `NEMI_BASE_URL` 可选择其他本地端口。测试在当前个人开发空间建立带“验收”前缀的事项并标记完成，切勿对公开部署运行。
+
+## 5. 恢复验证
+
+保存一个未来提醒后，可以停止 notification-worker，过提醒时间再重启。Temporal 保存计时和待执行 Activity，站内记录最终出现一次。超过 10 分钟才恢复时显示“过期提醒”，不声称正常准时触达。
+
+生成清单时关闭网页不会停止 Worker。在实际付费请求中途强制终止 Worker，第三方结果可能未知；本版优先不重复收费，Run 显示未完成，不能声称自动精确续接供应商调用。
+
+## 6. 停止服务
+
+原生开发的终端使用 Ctrl+C。数据保留在 `data`。Docker 使用 `docker compose down`；保留 volumes，不加 `-v`，除非你明确要删除开发数据。
+
+## 7. 已知限制
+
+- 邀请口令、明文开发库、缺少生产身份生命周期治理：只供本机个人验证。
+- API、Worker、数据库与 Temporal 分进程，但没有高可用、生产备份、压测或发布验收。
+- 没有上传 / S3 / 文档提取，没有微信、飞书或企微真实凭据，也没有手机后台提醒。
+- 业务结果在 PostgreSQL 保存；当前不支持机密文件、生产数据加密与完整删除保留流程。
+- 单次清单生成只提供规划建议，日期只能经用户明确选择与确认保存。

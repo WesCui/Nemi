@@ -1,0 +1,58 @@
+name: nemi
+x-app: &app
+  build: .
+  restart: unless-stopped
+  environment: &env
+    APP_ENV: development
+    APP_INVITE_CODE: ${APP_INVITE_CODE:?Set APP_INVITE_CODE in .env}
+    APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
+    APP_LISTEN: 0.0.0.0:8080
+    DATABASE_URL: postgres://nemi:nemi_dev_only@postgres:5432/nemi?sslmode=disable
+    TEMPORAL_ADDRESS: temporal:7233
+    MODEL_PROVIDER: ${MODEL_PROVIDER:-demo}
+    MODEL_NAME: ${MODEL_NAME:-}
+    MODEL_API_KEY: ${MODEL_API_KEY:-}
+    MODEL_INPUT_PRICE_MICRO_CNY: ${MODEL_INPUT_PRICE_MICRO_CNY:-0}
+    MODEL_OUTPUT_PRICE_MICRO_CNY: ${MODEL_OUTPUT_PRICE_MICRO_CNY:-0}
+  depends_on:
+    postgres:
+      condition: service_healthy
+    temporal:
+      condition: service_started
+services:
+  postgres:
+    image: postgres:17.6-bookworm
+    environment:
+      POSTGRES_USER: nemi
+      POSTGRES_PASSWORD: nemi_dev_only
+      POSTGRES_DB: nemi
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nemi -d nemi"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  temporal:
+    image: temporalio/temporal:1.9.1
+    command: ["server", "start-dev", "--ip", "0.0.0.0", "--db-filename", "/data/temporal.db", "--ui-port", "8233"]
+    ports: ["127.0.0.1:7233:7233", "127.0.0.1:8233:8233"]
+    volumes: ["temporal-data:/data"]
+  api:
+    <<: *app
+    ports: ["127.0.0.1:8080:8080"]
+  runtime-worker:
+    <<: *app
+    entrypoint: ["/app/runtime-worker"]
+    depends_on: [api]
+  notification-worker:
+    <<: *app
+    entrypoint: ["/app/notification-worker"]
+    depends_on: [api]
+  relay:
+    <<: *app
+    entrypoint: ["/app/relay"]
+    depends_on: [api]
+volumes:
+  postgres-data:
+  temporal-data:

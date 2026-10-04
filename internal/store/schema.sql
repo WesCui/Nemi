@@ -1,0 +1,48 @@
+CREATE TABLE IF NOT EXISTS schema_versions (version int PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS workspaces (id text PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS users (id text PRIMARY KEY, workspace_id text NOT NULL REFERENCES workspaces(id), invite_hash bytea NOT NULL UNIQUE, display_name text NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions (token_hash bytea PRIMARY KEY, user_id text NOT NULL REFERENCES users(id), expires_at timestamptz NOT NULL);
+CREATE TABLE IF NOT EXISTS matters (
+ workspace_id text NOT NULL REFERENCES workspaces(id), id text NOT NULL, title text NOT NULL, source text NOT NULL,
+ category text NOT NULL CHECK(category IN ('life','travel','work')), status text NOT NULL CHECK(status IN ('ACTIVE','COMPLETED')),
+ revision int NOT NULL DEFAULT 1 CHECK(revision>0), items jsonb NOT NULL DEFAULT '[]', deadline timestamptz, created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(workspace_id,id)
+);
+CREATE TABLE IF NOT EXISTS reminders (
+ workspace_id text NOT NULL, id text NOT NULL, matter_id text NOT NULL, revision int NOT NULL DEFAULT 1,
+ nominal_at timestamptz NOT NULL, due_at timestamptz NOT NULL, quiet boolean NOT NULL, enabled boolean NOT NULL DEFAULT true,
+ sync_status text NOT NULL DEFAULT 'PENDING_SYNC', PRIMARY KEY(workspace_id,id), UNIQUE(workspace_id,matter_id),
+ FOREIGN KEY(workspace_id,matter_id) REFERENCES matters(workspace_id,id)
+);
+CREATE TABLE IF NOT EXISTS runs (
+ workspace_id text NOT NULL, id text NOT NULL, matter_id text NOT NULL, matter_revision int NOT NULL, snapshot_title text NOT NULL, snapshot_source text NOT NULL,
+ status text NOT NULL CHECK(status IN ('QUEUED','RUNNING','SUCCEEDED','FAILED')), mode text NOT NULL, result jsonb,
+ error_code text NOT NULL DEFAULT '', attempt_status text NOT NULL DEFAULT 'NONE', reserved_micro_cny bigint NOT NULL DEFAULT 0,
+ charged_micro_cny bigint NOT NULL DEFAULT 0, input_tokens bigint NOT NULL DEFAULT 0, output_tokens bigint NOT NULL DEFAULT 0, budget_day date,
+ model_profile text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(workspace_id,id), FOREIGN KEY(workspace_id,matter_id) REFERENCES matters(workspace_id,id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS active_matter_run ON runs(workspace_id,matter_id) WHERE status IN ('QUEUED','RUNNING');
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS budget_day date;
+UPDATE runs SET budget_day=(updated_at AT TIME ZONE 'Asia/Shanghai')::date WHERE budget_day IS NULL AND attempt_status<>'NONE';
+CREATE TABLE IF NOT EXISTS outbox (
+ id text PRIMARY KEY, workspace_id text NOT NULL, kind text NOT NULL, subject_id text NOT NULL, revision int NOT NULL DEFAULT 0, due_at timestamptz,
+ state text NOT NULL DEFAULT 'PENDING', leased_until timestamptz, lease_token text, attempts int NOT NULL DEFAULT 0, available_at timestamptz NOT NULL DEFAULT now(), last_error text NOT NULL DEFAULT '',
+ UNIQUE(workspace_id,kind,subject_id,revision)
+);
+CREATE INDEX IF NOT EXISTS pending_outbox ON outbox(available_at) WHERE state='PENDING';
+CREATE TABLE IF NOT EXISTS commands (
+ workspace_id text NOT NULL REFERENCES workspaces(id), key text NOT NULL, route text NOT NULL, body_hash bytea NOT NULL, response jsonb NOT NULL, status int NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,key)
+);
+CREATE TABLE IF NOT EXISTS notifications (
+ workspace_id text NOT NULL, id text NOT NULL, reminder_id text NOT NULL, revision int NOT NULL, matter_id text NOT NULL,
+ title text NOT NULL, status text NOT NULL CHECK(status IN ('AVAILABLE','OVERDUE')), created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(workspace_id,id), UNIQUE(workspace_id,reminder_id,revision), FOREIGN KEY(workspace_id,reminder_id) REFERENCES reminders(workspace_id,id)
+);
+CREATE TABLE IF NOT EXISTS business_events (
+ sequence bigserial PRIMARY KEY, workspace_id text NOT NULL REFERENCES workspaces(id), kind text NOT NULL, subject_id text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS scoped_events ON business_events(workspace_id,sequence);
+INSERT INTO schema_versions(version) VALUES(1) ON CONFLICT DO NOTHING;
+INSERT INTO schema_versions(version) VALUES(2) ON CONFLICT DO NOTHING;
