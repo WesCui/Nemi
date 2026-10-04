@@ -5,7 +5,9 @@ import {
   ArrowDownToLine,
   ArrowRight,
   ArrowUp,
+  Activity,
   Bell,
+  Brain,
   Check,
   CheckCheck,
   ChevronRight,
@@ -37,9 +39,23 @@ import {
   Matter,
   quietPreview,
   Reminder,
+  repeatLabels,
+  endOfChinaDate,
 } from "@/lib/api";
+import {
+  ActivityPanel,
+  MemoryPanel,
+  RepeatFields,
+  SourceEditor,
+} from "@/components/assistant-next";
 
-type View = "today" | "matters" | "reminders" | "connections";
+type View =
+  | "today"
+  | "matters"
+  | "reminders"
+  | "connections"
+  | "memory"
+  | "activity";
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`brand ${compact ? "compact" : ""}`}>
@@ -168,6 +184,8 @@ export default function Home() {
     { id: "today", title: "今天", icon: Sun },
     { id: "matters", title: "我的事项", icon: ListTodo },
     { id: "reminders", title: "提醒", icon: Bell },
+    { id: "activity", title: "工作动态", icon: Activity },
+    { id: "memory", title: "生活偏好", icon: Brain },
     { id: "connections", title: "连接应用", icon: Unplug },
   ] as const;
   async function logout() {
@@ -526,6 +544,7 @@ export default function Home() {
                       <small>
                         {formatTime(r.due_at)}
                         {r.due_at !== r.nominal_at && " · 已按免打扰调整"}
+                        {r.repeat !== "once" && ` · ${repeatLabels[r.repeat]}`}
                       </small>
                     </div>
                     <span className="status-badge">
@@ -565,7 +584,39 @@ export default function Home() {
                   <p className="muted">提醒到时间后，记录会出现在这里。</p>
                 )}
               </section>
+              {data.reminders.some((r) => !r.enabled) && (
+                <section className="reminder-list">
+                  <h3>已停用或结束</h3>
+                  {data.reminders
+                    .filter((r) => !r.enabled)
+                    .map((r) => (
+                      <button
+                        className="reminder-row"
+                        key={r.id}
+                        onClick={() => setSelected(r.matter_id)}
+                      >
+                        <Clock3 size={17} />
+                        <div>
+                          <b>{r.title}</b>
+                          <small>
+                            {repeatLabels[r.repeat]} ·{" "}
+                            {r.sync_status === "ENDED"
+                              ? "周期已结束"
+                              : "已停用"}
+                          </small>
+                        </div>
+                        <ChevronRight size={15} />
+                      </button>
+                    ))}
+                </section>
+              )}
             </>
+          )}
+          {view === "memory" && (
+            <MemoryPanel memories={data.memories} refresh={refresh} />
+          )}
+          {view === "activity" && (
+            <ActivityPanel data={data} onSelect={setSelected} />
           )}
           {view === "connections" && (
             <>
@@ -621,6 +672,7 @@ export default function Home() {
         <CreateDialog
           draft={draft}
           demo={data.model_mode === "demo"}
+          memoryCount={data.memories.length}
           onClose={() => setCreate(false)}
           onSaved={async (id) => {
             setCreate(false);
@@ -947,11 +999,13 @@ function Modal({
 function CreateDialog({
   draft,
   demo,
+  memoryCount,
   onClose,
   onSaved,
 }: {
   draft: string;
   demo: boolean;
+  memoryCount: number;
   onClose: () => void;
   onSaved: (id: string) => Promise<void>;
 }) {
@@ -962,6 +1016,11 @@ function CreateDialog({
   const [reminder, setReminder] = useState(false);
   const [at, setAt] = useState(localInput());
   const [quiet, setQuiet] = useState(true);
+  const [repeat, setRepeat] = useState("once");
+  const [until, setUntil] = useState(
+    localInput(new Date(Date.now() + 30 * 86400000).toISOString()).slice(0, 10),
+  );
+  const [useMemory, setUseMemory] = useState(true);
   const [confirmed, setConfirmed] = useState(false);
   const [generate, setGenerate] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -980,6 +1039,9 @@ function CreateDialog({
         deadline: deadline ? isoChina(deadline) : null,
         reminder_at: reminder ? isoChina(at) : null,
         quiet,
+        repeat: reminder ? repeat : "once",
+        repeat_until:
+          reminder && repeat !== "once" && until ? endOfChinaDate(until) : null,
         timezone: "Asia/Shanghai",
         confirmed,
       };
@@ -996,7 +1058,7 @@ function CreateDialog({
         try {
           await api(
             `/matters/${m.id}/runs`,
-            { expected_revision: m.revision },
+            { expected_revision: m.revision, use_memory: useMemory },
             "POST",
             `${command.current.key}-plan`,
           );
@@ -1070,7 +1132,7 @@ function CreateDialog({
               setConfirmed(false);
             }}
           />
-          设置一次提醒
+          设置提醒
         </label>
         {reminder && (
           <div className="reminder-settings">
@@ -1086,6 +1148,18 @@ function CreateDialog({
                 required
               />
             </label>
+            <RepeatFields
+              repeat={repeat}
+              until={until}
+              onRepeat={(value) => {
+                setRepeat(value);
+                setConfirmed(false);
+              }}
+              onUntil={(value) => {
+                setUntil(value);
+                setConfirmed(false);
+              }}
+            />
             <label className="check-label">
               <input
                 type="checkbox"
@@ -1113,6 +1187,16 @@ function CreateDialog({
           保存后整理一份行动清单
           {demo && <span className="tiny-tag">演示生成</span>}
         </label>
+        {memoryCount > 0 && generate && (
+          <label className="check-label">
+            <input
+              type="checkbox"
+              checked={useMemory}
+              onChange={(e) => setUseMemory(e.target.checked)}
+            />
+            参考已确认的偏好
+          </label>
+        )}
         <label className="check-label confirmation">
           <input
             type="checkbox"
@@ -1171,6 +1255,8 @@ function MatterDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [editingReminder, setEditingReminder] = useState(false);
+  const [editingSource, setEditingSource] = useState(false);
+  const [useMemory, setUseMemory] = useState(true);
   const [optimisticItems, setOptimisticItems] = useState<Item[] | null>(null);
   const shownItems = optimisticItems || m.items;
   async function mutate(body: unknown) {
@@ -1201,7 +1287,10 @@ function MatterDialog({
     setBusy(true);
     setError("");
     try {
-      await api(`/matters/${m.id}/runs`, { expected_revision: m.revision });
+      await api(`/matters/${m.id}/runs`, {
+        expected_revision: m.revision,
+        use_memory: useMemory,
+      });
       await refresh();
     } catch (err) {
       setError((err as Error).message);
@@ -1210,7 +1299,7 @@ function MatterDialog({
     }
   }
   function download() {
-    const text = `# ${m.title}\n\n${m.items.map((i) => `- [${i.done ? "x" : " "}] ${i.text}`).join("\n")}\n\n${run?.result?.summary || ""}\n\n来源：用户提供资料。${run?.mode === "demo" ? "本地演示生成。" : "AI 生成。"}未进行外部核验。\n`;
+    const text = `# ${m.title}\n\n${m.items.map((i) => `- [${i.done ? "x" : " "}] ${i.text}`).join("\n")}\n\n${run?.result?.summary || ""}\n\n来源：用户提供资料${run?.used_memory_count ? "及已确认偏好" : ""}。${run?.mode === "demo" ? "本地演示生成。" : "AI 生成。"}未进行外部核验。\n`;
     const url = URL.createObjectURL(
       new Blob([text], { type: "text/markdown;charset=utf-8" }),
     );
@@ -1248,6 +1337,24 @@ function MatterDialog({
           </h3>
           <p>{m.source}</p>
         </section>
+      )}
+      <button
+        className="text-button"
+        disabled={busy || m.status === "COMPLETED"}
+        onClick={() => setEditingSource((value) => !value)}
+      >
+        <FileText size={15} />
+        {editingSource ? "收起资料修改" : "补充或修改资料"}
+      </button>
+      {editingSource && (
+        <SourceEditor
+          matter={m}
+          onCancel={() => setEditingSource(false)}
+          onSaved={async () => {
+            await refresh();
+            setEditingSource(false);
+          }}
+        />
       )}
       <section className="checklist-section">
         <div className="detail-section-heading">
@@ -1289,6 +1396,22 @@ function MatterDialog({
             {run.mode === "demo" && " · 本地演示生成"}
           </p>
         )}
+        {!!run?.used_memory_count && (
+          <p className="memory-used">
+            <Brain size={14} />
+            本次整理参考了 {run.used_memory_count} 条已确认偏好
+          </p>
+        )}
+        {data.memories.length > 0 && m.status === "ACTIVE" && (
+          <label className="check-label">
+            <input
+              type="checkbox"
+              checked={useMemory}
+              onChange={(e) => setUseMemory(e.target.checked)}
+            />
+            参考已确认的偏好
+          </label>
+        )}
         <div className="source-disclaimer">
           来源仅为你提供的资料，未进行联网核验、预约或外部操作。
         </div>
@@ -1321,9 +1444,15 @@ function MatterDialog({
           </h3>
           <p>
             {reminder?.enabled
-              ? `${formatTime(reminder.due_at)} · ${reminder.sync_status === "FIRED" ? "已记入站内" : reminder.sync_status === "APPLIED" ? "已安排" : "正在同步"}`
+              ? `${formatTime(reminder.due_at)} · ${repeatLabels[reminder.repeat]} · ${reminder.sync_status === "FIRED" ? "已记入站内" : reminder.sync_status === "APPLIED" ? "已安排" : "正在同步"}`
               : "暂未设置提醒"}
           </p>
+          {reminder?.enabled && reminder.repeat_until && (
+            <small>
+              结束日期：{localInput(reminder.repeat_until).slice(0, 10)} ·
+              可以随时停用
+            </small>
+          )}
         </div>
         <button
           className="text-button"
@@ -1382,6 +1511,13 @@ function ReminderEditor({
 }) {
   const [at, setAt] = useState(localInput(reminder?.nominal_at));
   const [quiet, setQuiet] = useState(reminder?.quiet ?? true);
+  const [repeat, setRepeat] = useState<string>(reminder?.repeat || "once");
+  const [until, setUntil] = useState(
+    localInput(
+      reminder?.repeat_until ||
+        new Date(Date.now() + 30 * 86400000).toISOString(),
+    ).slice(0, 10),
+  );
   const [enabled, setEnabled] = useState(true);
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1400,6 +1536,8 @@ function ReminderEditor({
         enabled,
         confirmed,
         timezone: "Asia/Shanghai",
+        repeat,
+        repeat_until: repeat !== "once" && until ? endOfChinaDate(until) : null,
       };
       const serialized = JSON.stringify(body);
       if (command.current?.body !== serialized)
@@ -1431,6 +1569,19 @@ function ReminderEditor({
           }}
         />
       </label>
+      <RepeatFields
+        repeat={repeat}
+        until={until}
+        disabled={!enabled}
+        onRepeat={(value) => {
+          setRepeat(value);
+          setConfirmed(false);
+        }}
+        onUntil={(value) => {
+          setUntil(value);
+          setConfirmed(false);
+        }}
+      />
       <label className="check-label">
         <input
           type="checkbox"

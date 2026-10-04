@@ -29,12 +29,12 @@ func (a *Activities) Admit(ctx context.Context, r store.Ref) (Admission, error) 
 	return Admission{in.Ready, in.Done}, nil
 }
 func (a *Activities) Generate(ctx context.Context, r store.Ref) error {
-	in, e := a.Store.ClaimModel(ctx, r)
+	in, e := a.Store.ClaimModel(ctx, r, a.Gateway.Profile())
 	if e != nil {
+		if e.Error() == "MODEL_CONFIG_CHANGED" {
+			return a.Store.FailRun(ctx, r, "MODEL_CONFIG_CHANGED", 0, 0, 0)
+		}
 		return temporal.NewNonRetryableApplicationError("model attempt unavailable", "UNKNOWN", e)
-	}
-	if in.Profile != a.Gateway.Profile() {
-		return a.Store.FailRun(ctx, r, "MODEL_CONFIG_CHANGED", 0, 0, 0)
 	}
 	activity.RecordHeartbeat(ctx)
 	done := make(chan struct{})

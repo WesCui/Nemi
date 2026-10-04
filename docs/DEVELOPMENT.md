@@ -30,6 +30,8 @@ mkdir -p data
 
 另外四个 Git Bash 终端先 `source scripts/env.sh`，再分别 `go run ./cmd/control-api`、`go run ./cmd/runtime-worker`、`go run ./cmd/notification-worker`、`go run ./cmd/relay`。最后在 `apps/web` 中执行 `npm ci` 和 `npm run dev -- --port 3100`。
 
+也可以在根目录执行 `bash scripts/build.sh`，再从 `.cache/bin` 运行四个二进制；Windows 后缀为 `.exe`。更新版本时同步重启 API 与全部 Worker，Web 重新构建后再启动，避免混用不同 Model Profile。迁移会给现有提醒补上 `repeat=once`，保留原始事项、提醒和结果。
+
 Bash 验证命令：
 
 浏览器测试使用本机已安装的 Google Chrome；后端、Web 与全部 Worker 均需先启动，Web 默认使用演示模式。
@@ -47,7 +49,18 @@ npm run test:e2e
 
 下方 PowerShell 命令保留作可选参考；Bash 环境脚本按字面值读取 `.env`，不会把其中的内容当脚本执行。
 
+## v0.2 功能使用
+
+- **生活偏好**：新增内容、选择场景、确认保存。支持修改和移除；生成清单前可取消“参考已确认的偏好”。仅保存用户确认的内容，不自动从对话提取。
+- **持续跟进**：打开事项，使用“补充或修改资料”。保存后可重新整理清单；更新资料不会自动覆盖已有清单。
+- **周期提醒**：选择首次日期和每天 / 周一至周五 / 每周频率，确认结束日期。每周沿用首次日期的星期和时间，周一至周五不计算法定调休。停用在提醒设置中操作，不停止模型工作。
+- **工作动态**：查看后台进度和近期记录，点击“查看”进入原事项。当前没有模型 Run 的暂停、取消和实时 Token 输出。
+
+提醒记录需要打开页面查看；重复计划不等于周期联网检查或周期模型研究。详细边界见 [实施状态](./IMPLEMENTATION.md)。
+
 在项目根目录执行：
+
+以下保留为 PowerShell 可选参考；后续项目开发实际使用上方的 Git Bash 流程。
 
 ```powershell
 Copy-Item .env.example .env
@@ -146,6 +159,8 @@ npm run test:e2e
 ## 6. 停止服务
 
 原生开发的终端使用 Ctrl+C。数据保留在 `data`。Docker 使用 `docker compose down`；保留 volumes，不加 `-v`，除非你明确要删除开发数据。
+
+本机工具终端曾出现退出后 Windows 子进程仍存活的情况。若端口仍占用，用 `netstat.exe -ano` 和 `ps -W` 核对 PID、程序路径与启动时间，只停止对应项目进程；不要按 `node.exe` 名称批量结束其他应用。数据库和 Temporal 可以保持运行。
 
 ## 7. 已知限制
 

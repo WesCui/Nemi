@@ -38,7 +38,7 @@ test("confirmed matter, durable plan, revisioned reminder, checklist and complet
       "上海出发，周末去杭州，两位成人，预算1500元。开放时间和预约要求尚未核验。",
     );
   await create.getByLabel("事项类型").selectOption("travel");
-  await create.getByLabel("设置一次提醒", { exact: true }).check();
+  await create.getByLabel("设置提醒", { exact: true }).check();
   await expect(
     create.getByRole("button", { name: "确认并保存" }),
   ).toBeDisabled();

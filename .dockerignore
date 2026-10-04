@@ -3,6 +3,8 @@
 .env
 data
 apps
-docs
+docs/*
+!docs/licenses/
+!docs/licenses/**
 scripts
 *.log

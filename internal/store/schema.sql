@@ -46,3 +46,12 @@ CREATE TABLE IF NOT EXISTS business_events (
 CREATE INDEX IF NOT EXISTS scoped_events ON business_events(workspace_id,sequence);
 INSERT INTO schema_versions(version) VALUES(1) ON CONFLICT DO NOTHING;
 INSERT INTO schema_versions(version) VALUES(2) ON CONFLICT DO NOTHING;
+ALTER TABLE reminders ADD COLUMN IF NOT EXISTS repeat text NOT NULL DEFAULT 'once' CHECK(repeat IN ('once','daily','weekdays','weekly'));
+ALTER TABLE reminders ADD COLUMN IF NOT EXISTS repeat_until timestamptz;
+CREATE TABLE IF NOT EXISTS memories (
+ workspace_id text NOT NULL REFERENCES workspaces(id), id text NOT NULL, category text NOT NULL CHECK(category IN ('general','life','travel','work')),
+ content text NOT NULL, revision int NOT NULL DEFAULT 1 CHECK(revision>0), updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,id)
+);
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS memory_refs jsonb NOT NULL DEFAULT '[]';
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS used_memory_count int NOT NULL DEFAULT 0;
+INSERT INTO schema_versions(version) VALUES(3) ON CONFLICT DO NOTHING;

@@ -32,7 +32,7 @@ func New(c config.Config) *Gateway {
 	return &Gateway{c, &http.Client{Timeout: 120 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 func (g *Gateway) Profile() string {
-	return fmt.Sprintf("%s:%s:%d:%d:plan-v1", g.Config.Provider, g.Config.Model, g.Config.InputPrice, g.Config.OutputPrice)
+	return fmt.Sprintf("%s:%s:%d:%d:plan-v2", g.Config.Provider, g.Config.Model, g.Config.InputPrice, g.Config.OutputPrice)
 }
 func (g *Gateway) Mode() string {
 	if g.Config.Provider == "demo" {

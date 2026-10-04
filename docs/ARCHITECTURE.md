@@ -1,6 +1,6 @@
 # 国内生活助理 Agent Cloud Runtime 技术架构
 
-版本：v0.3 · 日期：2026-10-04 · 状态：目标架构；v0.1 已实施首个切片，完成范围与验证见 [实施状态](./IMPLEMENTATION.md)
+版本：v0.3 · 日期：2026-10-04 · 状态：目标架构；代码已推进至 v0.2，实际周期 timer 链、偏好上下文和验证见 [实施状态](./IMPLEMENTATION.md)
 
 配套见 [PRD](./PRD.md)、[dots 功能对标调研](./DOTS_BENCHMARK.md) 和 [使用场景与办公接入调研](./SCENARIO_RESEARCH.md)。原 FastAPI 方案保留于 [v0.1 存档](./archive/v0.1/ARCHITECTURE.md)。本文的接口、表和流程是本项目设计合同，不是 OpenAI dots 内部实现或已经运行的代码。
 

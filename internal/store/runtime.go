@@ -32,7 +32,8 @@ func (s *Store) AdmitRun(ctx context.Context, r Ref, reserve func(string, string
 	}
 	var in RunInput
 	var status, attempt string
-	e = tx.QueryRow(ctx, "SELECT snapshot_title,snapshot_source,model_profile,status,attempt_status,reserved_micro_cny FROM runs WHERE workspace_id=$1 AND id=$2 FOR UPDATE", r.Workspace, r.ID).Scan(&in.Title, &in.Source, &in.Profile, &status, &attempt, &in.Reservation)
+	var refs []byte
+	e = tx.QueryRow(ctx, "SELECT snapshot_title,snapshot_source,model_profile,status,attempt_status,reserved_micro_cny,memory_refs FROM runs WHERE workspace_id=$1 AND id=$2 FOR UPDATE", r.Workspace, r.ID).Scan(&in.Title, &in.Source, &in.Profile, &status, &attempt, &in.Reservation, &refs)
 	if e != nil {
 		return in, e
 	}
@@ -54,6 +55,10 @@ func (s *Store) AdmitRun(ctx context.Context, r Ref, reserve func(string, string
 	}
 	if global >= 5 || personal >= 2 {
 		return in, nil
+	}
+	in.Source, _, e = memorySource(ctx, tx, r.Workspace, in.Source, refs)
+	if e != nil {
+		return in, e
 	}
 	in.Reservation = reserve(in.Title, in.Source)
 	if in.Reservation > 1000000 {
@@ -80,13 +85,35 @@ func (s *Store) AdmitRun(ctx context.Context, r Ref, reserve func(string, string
 	in.Ready = true
 	return in, nil
 }
-func (s *Store) ClaimModel(ctx context.Context, r Ref) (RunInput, error) {
+func (s *Store) ClaimModel(ctx context.Context, r Ref, expectedProfile ...string) (RunInput, error) {
 	var in RunInput
-	e := s.Pool.QueryRow(ctx, "UPDATE runs SET attempt_status='CALLING',updated_at=now() WHERE workspace_id=$1 AND id=$2 AND status='RUNNING' AND attempt_status='RESERVED' RETURNING snapshot_title,snapshot_source,model_profile,reserved_micro_cny", r.Workspace, r.ID).Scan(&in.Title, &in.Source, &in.Profile, &in.Reservation)
+	tx, e := s.Pool.Begin(ctx)
+	if e != nil {
+		return in, e
+	}
+	defer tx.Rollback(ctx)
+	var refs []byte
+	e = tx.QueryRow(ctx, "UPDATE runs SET attempt_status='CALLING',updated_at=now() WHERE workspace_id=$1 AND id=$2 AND status='RUNNING' AND attempt_status='RESERVED' RETURNING snapshot_title,snapshot_source,model_profile,reserved_micro_cny,memory_refs", r.Workspace, r.ID).Scan(&in.Title, &in.Source, &in.Profile, &in.Reservation, &refs)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return in, errors.New("MODEL_OUTCOME_UNKNOWN")
 	}
-	return in, e
+	if e != nil {
+		return in, e
+	}
+	// This transaction hasn't committed CALLING yet. A profile mismatch rolls
+	// the claim back, proving that no model submission needs an unknown reserve.
+	if len(expectedProfile) > 0 && in.Profile != expectedProfile[0] {
+		return in, errors.New("MODEL_CONFIG_CHANGED")
+	}
+	var count int
+	in.Source, count, e = memorySource(ctx, tx, r.Workspace, in.Source, refs)
+	if e != nil {
+		return in, e
+	}
+	if _, e = tx.Exec(ctx, "UPDATE runs SET used_memory_count=$3 WHERE workspace_id=$1 AND id=$2", r.Workspace, r.ID, count); e != nil {
+		return in, e
+	}
+	return in, tx.Commit(ctx)
 }
 func (s *Store) FinishRun(ctx context.Context, r Ref, plan domain.Plan, input, output, cost int64) error {
 	tx, e := s.Pool.Begin(ctx)
@@ -158,32 +185,71 @@ func (s *Store) DeliverReminder(ctx context.Context, r Ref, revision int) error 
 	defer tx.Rollback(ctx)
 	var enabled bool
 	var rev int
-	var due time.Time
+	var due, nominal time.Time
+	var until *time.Time
+	var repeat string
+	var quiet bool
 	var mid, title, status string
-	e = tx.QueryRow(ctx, "SELECT r.enabled,r.revision,r.due_at,r.matter_id,m.title,m.status FROM reminders r JOIN matters m ON(r.workspace_id=m.workspace_id AND r.matter_id=m.id) WHERE r.workspace_id=$1 AND r.id=$2 FOR UPDATE OF r,m", r.Workspace, r.ID).Scan(&enabled, &rev, &due, &mid, &title, &status)
+	var deadline *time.Time
+	// Match edit/complete lock order: matter first, then reminder. This prevents
+	// a delivery racing a completion from acquiring those rows in reverse order.
+	e = tx.QueryRow(ctx, "SELECT matter_id FROM reminders WHERE workspace_id=$1 AND id=$2", r.Workspace, r.ID).Scan(&mid)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return nil
 	}
 	if e != nil {
 		return e
 	}
+	if e = tx.QueryRow(ctx, "SELECT title,status,deadline FROM matters WHERE workspace_id=$1 AND id=$2 FOR UPDATE", r.Workspace, mid).Scan(&title, &status, &deadline); e != nil {
+		return e
+	}
+	e = tx.QueryRow(ctx, "SELECT enabled,revision,due_at,nominal_at,quiet,repeat,repeat_until FROM reminders WHERE workspace_id=$1 AND id=$2 FOR UPDATE", r.Workspace, r.ID).Scan(&enabled, &rev, &due, &nominal, &quiet, &repeat, &until)
+	if e != nil {
+		return e
+	}
 	if !enabled || rev != revision || status != "ACTIVE" {
 		return nil
 	}
-	if time.Now().Before(due) {
+	now := time.Now()
+	if now.Before(due) {
 		return errors.New("REMINDER_NOT_DUE")
 	}
 	deliveryStatus := "AVAILABLE"
-	if time.Since(due) > 10*time.Minute {
+	if now.Sub(due) > 10*time.Minute {
 		deliveryStatus = "OVERDUE"
 	}
 	tag, e := tx.Exec(ctx, "INSERT INTO notifications(workspace_id,id,reminder_id,revision,matter_id,title,status) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(workspace_id,reminder_id,revision) DO NOTHING", r.Workspace, domain.ID(), r.ID, revision, mid, title, deliveryStatus)
 	if e != nil {
 		return e
 	}
-	_, e = tx.Exec(ctx, "UPDATE reminders SET sync_status='FIRED' WHERE workspace_id=$1 AND id=$2", r.Workspace, r.ID)
+	next, e := domain.NextOccurrence(nominal, until, repeat, quiet, now)
 	if e != nil {
 		return e
+	}
+	if next != nil && deadline != nil && domain.EffectiveDue(*next, quiet).After(*deadline) {
+		next = nil
+	}
+	if next != nil {
+		nextDue := domain.EffectiveDue(*next, quiet)
+		_, e = tx.Exec(ctx, "UPDATE reminders SET revision=revision+1,nominal_at=$3,due_at=$4,sync_status='PENDING_SYNC' WHERE workspace_id=$1 AND id=$2", r.Workspace, r.ID, *next, nextDue)
+		if e != nil {
+			return e
+		}
+		if e = enqueue(ctx, tx, r.Workspace, "reminder", r.ID, rev+1, &nextDue); e != nil {
+			return e
+		}
+	} else if repeat != "once" {
+		_, e = tx.Exec(ctx, "UPDATE reminders SET revision=revision+1,enabled=false,sync_status='ENDED' WHERE workspace_id=$1 AND id=$2", r.Workspace, r.ID)
+		if e != nil {
+			return e
+		}
+		if e = event(ctx, tx, r.Workspace, "reminder.ended", r.ID); e != nil {
+			return e
+		}
+	} else {
+		if _, e = tx.Exec(ctx, "UPDATE reminders SET sync_status='FIRED' WHERE workspace_id=$1 AND id=$2", r.Workspace, r.ID); e != nil {
+			return e
+		}
 	}
 	if tag.RowsAffected() > 0 {
 		if e = event(ctx, tx, r.Workspace, "notification.available", r.ID); e != nil {

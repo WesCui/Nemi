@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"nemi/internal/config"
+	"nemi/internal/domain"
 	"nemi/internal/model"
 	"nemi/internal/store"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAuthenticatedConfirmationAndOrigin(t *testing.T) {
@@ -41,7 +43,7 @@ func TestAuthenticatedConfirmationAndOrigin(t *testing.T) {
 	request := func(method, path, body, origin string, cookie *http.Cookie) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, bytes.NewBufferString(body))
 		r.Header.Set("Content-Type", "application/json")
-		r.Header.Set("Idempotency-Key", "test-key-123456")
+		r.Header.Set("Idempotency-Key", domain.ID())
 		if origin != "" {
 			r.Header.Set("Origin", origin)
 		}
@@ -83,5 +85,34 @@ func TestAuthenticatedConfirmationAndOrigin(t *testing.T) {
 	}
 	if dashboard.User.Workspace != "" {
 		t.Fatal("internal workspace exposed")
+	}
+	memoryBody := `{"text":"验收偏好：先确认材料要求","category":"life","confirmed":false,"expected_revision":0}`
+	if w = request("POST", "/api/v1/memories", memoryBody, c.Origin, cookie); w.Code != 400 {
+		t.Fatal("unconfirmed memory saved")
+	}
+	memoryBody = strings.Replace(memoryBody, `"confirmed":false`, `"confirmed":true`, 1)
+	if w = request("POST", "/api/v1/memories", memoryBody, c.Origin, cookie); w.Code != 201 {
+		t.Fatalf("memory status %d", w.Code)
+	}
+	var ref store.MemoryRef
+	if e = json.Unmarshal(w.Body.Bytes(), &ref); e != nil || ref.ID == "" {
+		t.Fatal("missing memory reference", e)
+	}
+	path := "/api/v1/memories/" + ref.ID
+	if w = request("DELETE", path, `{"expected_revision":1,"confirmed":false}`, c.Origin, cookie); w.Code != 400 {
+		t.Fatal("unconfirmed memory deletion accepted")
+	}
+	if w = request("PUT", path, `{"text":"新偏好","category":"life","confirmed":true,"expected_revision":2}`, c.Origin, cookie); w.Code != 409 {
+		t.Fatal("stale preference update accepted")
+	}
+	if w = request("DELETE", path, `{"expected_revision":1,"confirmed":true,"workspace_id":"another-user"}`, c.Origin, cookie); w.Code != 400 {
+		t.Fatal("client scope on memory deletion accepted")
+	}
+	if w = request("DELETE", path, `{"expected_revision":1,"confirmed":true}`, c.Origin, cookie); w.Code != 200 {
+		t.Fatal("memory deletion failed")
+	}
+	at := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
+	if w = request("POST", "/api/v1/matters", `{"title":"周期测试","category":"life","timezone":"Asia/Shanghai","confirmed":true,"reminder_at":"`+at+`","repeat":"daily"}`, c.Origin, cookie); w.Code != 400 {
+		t.Fatal("unbounded recurring reminder accepted")
 	}
 }

@@ -20,6 +20,8 @@ export type Reminder = {
   quiet: boolean;
   enabled: boolean;
   sync_status: string;
+  repeat: "once" | "daily" | "weekdays" | "weekly";
+  repeat_until: string | null;
 };
 export type Run = {
   id: string;
@@ -29,6 +31,7 @@ export type Run = {
   result: { summary: string; items: string[] } | null;
   error: string;
   created_at: string;
+  used_memory_count: number;
 };
 export type Notification = {
   id: string;
@@ -44,7 +47,31 @@ export type Dashboard = {
   runs: Run[];
   notifications: Notification[];
   model_mode: string;
+  memories: Memory[];
+  activity: ActivityEvent[];
 };
+export type Memory = {
+  id: string;
+  category: "general" | "life" | "travel" | "work";
+  text: string;
+  revision: number;
+  updated_at: string;
+};
+export type ActivityEvent = {
+  sequence: number;
+  kind: string;
+  subject_id: string;
+  created_at: string;
+};
+export const repeatLabels = {
+  once: "仅一次",
+  daily: "每天",
+  weekdays: "周一至周五",
+  weekly: "每周同一天",
+};
+export function endOfChinaDate(value: string) {
+  return isoChina(`${value}T23:59`);
+}
 export class APIError extends Error {
   constructor(
     message: string,

@@ -48,8 +48,9 @@ func TestLiveWorkerReplacementAndOutbox(t *testing.T) {
 		t.Fatal(e)
 	}
 	due := time.Now().Add(5 * time.Second)
+	until := due.Add(48 * time.Hour)
 	mr, e := s.Command(ctx, wid, domain.ID(), "live-create", nil, func(tx pgx.Tx) (any, int, error) {
-		return s.CreateMatter(ctx, tx, wid, domain.CreateMatter{Title: "验收提醒恢复", Category: "life", ReminderAt: &due})
+		return s.CreateMatter(ctx, tx, wid, domain.CreateMatter{Title: "验收周期提醒恢复", Category: "life", ReminderAt: &due, Repeat: "daily", Until: &until})
 	})
 	if e != nil {
 		t.Fatal(e)
@@ -112,6 +113,40 @@ func TestLiveWorkerReplacementAndOutbox(t *testing.T) {
 	var count int
 	if e = s.Pool.QueryRow(ctx, "SELECT count(*) FROM notifications WHERE workspace_id=$1", wid).Scan(&count); e != nil || count != 1 {
 		t.Fatalf("recovery count=%d error=%v", count, e)
+	}
+	// The committed delivery and next occurrence share one transaction. The
+	// new workflow can be submitted twice, without replacing old histories.
+	var nextDue time.Time
+	var revision int
+	if e = s.Pool.QueryRow(ctx, "SELECT revision,due_at FROM reminders WHERE workspace_id=$1 AND id=$2", wid, rid).Scan(&revision, &nextDue); e != nil || revision != 2 || !nextDue.After(time.Now()) {
+		t.Fatalf("next recurrence %d %s %v", revision, nextDue, e)
+	}
+	nextOutbox := store.Outbox{Workspace: wid, Kind: "reminder", Subject: rid, Revision: revision, Due: &nextDue}
+	for i := 0; i < 2; i++ {
+		if e = dispatchTo(ctx, c, nextOutbox, queue, queue); e != nil {
+			t.Fatal(e)
+		}
+	}
+	defer c.CancelWorkflow(context.Background(), WorkflowID(nextOutbox), "")
+	timerStarted = false
+	for i := 0; i < 20 && !timerStarted; i++ {
+		iter := c.GetWorkflowHistory(ctx, WorkflowID(nextOutbox), "", false, enums.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
+		for iter.HasNext() {
+			ev, err := iter.Next()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ev.EventType == enums.EVENT_TYPE_TIMER_STARTED {
+				timerStarted = true
+				break
+			}
+		}
+		if !timerStarted {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	if !timerStarted {
+		t.Fatal("next recurring timer not persisted")
 	}
 	// Run outbox dispatch twice. Workflow IDs deduplicate the engine submission.
 	rr, e := s.Command(ctx, wid, domain.ID(), "live-run", nil, func(tx pgx.Tx) (any, int, error) {

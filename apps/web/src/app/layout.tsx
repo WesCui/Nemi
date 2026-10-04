@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./next-features.css";
 
 export const metadata: Metadata = {
   title: "Nemi · 你的生活助理",

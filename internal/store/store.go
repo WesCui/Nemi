@@ -172,7 +172,7 @@ func (s *Store) CreateMatter(ctx context.Context, tx pgx.Tx, w string, c domain.
 	if c.ReminderAt != nil {
 		id := domain.ID()
 		due := domain.EffectiveDue(*c.ReminderAt, c.Quiet)
-		_, e = tx.Exec(ctx, "INSERT INTO reminders(workspace_id,id,matter_id,nominal_at,due_at,quiet) VALUES($1,$2,$3,$4,$5,$6)", w, id, m.ID, c.ReminderAt, due, c.Quiet)
+		_, e = tx.Exec(ctx, "INSERT INTO reminders(workspace_id,id,matter_id,nominal_at,due_at,quiet,repeat,repeat_until) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", w, id, m.ID, c.ReminderAt, due, c.Quiet, domain.NormalizeRepeat(c.Repeat), c.Until)
 		if e != nil {
 			return nil, 0, e
 		}
@@ -189,6 +189,7 @@ func (s *Store) CreateMatter(ctx context.Context, tx pgx.Tx, w string, c domain.
 type EditMatter struct {
 	Expected int            `json:"expected_revision"`
 	Title    *string        `json:"title"`
+	Source   *string        `json:"source"`
 	Status   *string        `json:"status"`
 	Items    *[]domain.Item `json:"items"`
 }
@@ -204,6 +205,9 @@ func (s *Store) EditMatter(ctx context.Context, tx pgx.Tx, w, id string, p EditM
 	if p.Title != nil {
 		m.Title = *p.Title
 	}
+	if p.Source != nil {
+		m.Source = *p.Source
+	}
 	if p.Items != nil {
 		m.Items = *p.Items
 	}
@@ -212,7 +216,7 @@ func (s *Store) EditMatter(ctx context.Context, tx pgx.Tx, w, id string, p EditM
 	}
 	m.Revision++
 	items, _ := json.Marshal(m.Items)
-	_, e = tx.Exec(ctx, "UPDATE matters SET title=$3,status=$4,items=$5,revision=$6 WHERE workspace_id=$1 AND id=$2", w, id, m.Title, m.Status, items, m.Revision)
+	_, e = tx.Exec(ctx, "UPDATE matters SET title=$3,status=$4,items=$5,revision=$6,source=$7 WHERE workspace_id=$1 AND id=$2", w, id, m.Title, m.Status, items, m.Revision, m.Source)
 	if e != nil {
 		return nil, 0, e
 	}
@@ -241,6 +245,8 @@ type SaveReminder struct {
 	Quiet     bool       `json:"quiet"`
 	Confirmed bool       `json:"confirmed"`
 	Timezone  string     `json:"timezone"`
+	Repeat    string     `json:"repeat"`
+	Until     *time.Time `json:"repeat_until"`
 }
 
 func (s *Store) SaveReminder(ctx context.Context, tx pgx.Tx, w, mid string, p SaveReminder) (any, int, error) {
@@ -275,8 +281,14 @@ func (s *Store) SaveReminder(ctx context.Context, tx pgx.Tx, w, mid string, p Sa
 	if p.Enabled {
 		status = "PENDING_SYNC"
 	}
-	_, e = tx.Exec(ctx, `INSERT INTO reminders(workspace_id,id,matter_id,revision,nominal_at,due_at,quiet,enabled,sync_status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
- ON CONFLICT(workspace_id,matter_id) DO UPDATE SET revision=EXCLUDED.revision,nominal_at=EXCLUDED.nominal_at,due_at=EXCLUDED.due_at,quiet=EXCLUDED.quiet,enabled=EXCLUDED.enabled,sync_status=EXCLUDED.sync_status`, w, id, mid, rev+1, p.At, due, p.Quiet, p.Enabled, status)
+	if p.Enabled {
+		// API validates the time window; the store also enforces the matter deadline.
+		if m.Deadline != nil && (due.After(*m.Deadline) || (p.Until != nil && p.Until.After(*m.Deadline))) {
+			return nil, 0, domain.ErrConflict
+		}
+	}
+	_, e = tx.Exec(ctx, `INSERT INTO reminders(workspace_id,id,matter_id,revision,nominal_at,due_at,quiet,enabled,sync_status,repeat,repeat_until) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+ ON CONFLICT(workspace_id,matter_id) DO UPDATE SET revision=EXCLUDED.revision,nominal_at=EXCLUDED.nominal_at,due_at=EXCLUDED.due_at,quiet=EXCLUDED.quiet,enabled=EXCLUDED.enabled,sync_status=EXCLUDED.sync_status,repeat=EXCLUDED.repeat,repeat_until=EXCLUDED.repeat_until`, w, id, mid, rev+1, p.At, due, p.Quiet, p.Enabled, status, domain.NormalizeRepeat(p.Repeat), p.Until)
 	if e != nil {
 		return nil, 0, e
 	}
@@ -288,9 +300,9 @@ func (s *Store) SaveReminder(ctx context.Context, tx pgx.Tx, w, mid string, p Sa
 	if e = event(ctx, tx, w, "reminder.updated", id); e != nil {
 		return nil, 0, e
 	}
-	return domain.Reminder{ID: id, MatterID: mid, Title: m.Title, Revision: rev + 1, Nominal: *p.At, Due: due, Quiet: p.Quiet, Enabled: p.Enabled, SyncStatus: status}, 200, nil
+	return domain.Reminder{ID: id, MatterID: mid, Title: m.Title, Revision: rev + 1, Nominal: *p.At, Due: due, Quiet: p.Quiet, Enabled: p.Enabled, SyncStatus: status, Repeat: domain.NormalizeRepeat(p.Repeat), Until: p.Until}, 200, nil
 }
-func (s *Store) CreateRun(ctx context.Context, tx pgx.Tx, w, mid, mode, profile string, expected int) (any, int, error) {
+func (s *Store) CreateRun(ctx context.Context, tx pgx.Tx, w, mid, mode, profile string, expected int, useMemory ...bool) (any, int, error) {
 	m, e := scanMatter(tx.QueryRow(ctx, matterSelect+" WHERE workspace_id=$1 AND id=$2 FOR UPDATE", w, mid))
 	if e != nil {
 		return nil, 0, e
@@ -307,7 +319,15 @@ func (s *Store) CreateRun(ctx context.Context, tx pgx.Tx, w, mid, mode, profile 
 		return nil, 0, e
 	}
 	r := domain.Run{ID: domain.ID(), MatterID: mid, Status: "QUEUED", Mode: mode, CreatedAt: time.Now().UTC()}
-	_, e = tx.Exec(ctx, "INSERT INTO runs(workspace_id,id,matter_id,matter_revision,snapshot_title,snapshot_source,status,mode,model_profile,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", w, r.ID, mid, m.Revision, m.Title, m.Source, r.Status, mode, profile, r.CreatedAt)
+	refs := []MemoryRef{}
+	if len(useMemory) > 0 && useMemory[0] {
+		refs, e = selectMemoryRefs(ctx, tx, w, m.Category)
+		if e != nil {
+			return nil, 0, e
+		}
+	}
+	refJSON, _ := json.Marshal(refs)
+	_, e = tx.Exec(ctx, "INSERT INTO runs(workspace_id,id,matter_id,matter_revision,snapshot_title,snapshot_source,status,mode,model_profile,created_at,memory_refs) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)", w, r.ID, mid, m.Revision, m.Title, m.Source, r.Status, mode, profile, r.CreatedAt, refJSON)
 	if e != nil {
 		return nil, 0, e
 	}
@@ -327,10 +347,12 @@ type Dashboard struct {
 	Runs          []domain.Run          `json:"runs"`
 	Notifications []domain.Notification `json:"notifications"`
 	ModelMode     string                `json:"model_mode"`
+	Memories      []domain.Memory       `json:"memories"`
+	Activity      []domain.Event        `json:"activity"`
 }
 
 func (s *Store) Dashboard(ctx context.Context, i Identity, mode string) (Dashboard, error) {
-	d := Dashboard{User: i, Matters: []domain.Matter{}, Reminders: []domain.Reminder{}, Runs: []domain.Run{}, Notifications: []domain.Notification{}, ModelMode: mode}
+	d := Dashboard{User: i, Matters: []domain.Matter{}, Reminders: []domain.Reminder{}, Runs: []domain.Run{}, Notifications: []domain.Notification{}, ModelMode: mode, Memories: []domain.Memory{}, Activity: []domain.Event{}}
 	// One snapshot prevents a task and its revision-dependent reminders being shown inconsistently.
 	tx, e := s.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if e != nil {
@@ -354,13 +376,13 @@ func (s *Store) Dashboard(ctx context.Context, i Identity, mode string) (Dashboa
 	if e != nil {
 		return d, e
 	}
-	rows, e = tx.Query(ctx, "SELECT r.id,r.matter_id,m.title,r.revision,r.nominal_at,r.due_at,r.quiet,r.enabled,r.sync_status FROM reminders r JOIN matters m ON (r.workspace_id=m.workspace_id AND r.matter_id=m.id) WHERE r.workspace_id=$1 ORDER BY r.due_at LIMIT 200", i.Workspace)
+	rows, e = tx.Query(ctx, "SELECT r.id,r.matter_id,m.title,r.revision,r.nominal_at,r.due_at,r.quiet,r.enabled,r.sync_status,r.repeat,r.repeat_until FROM reminders r JOIN matters m ON (r.workspace_id=m.workspace_id AND r.matter_id=m.id) WHERE r.workspace_id=$1 ORDER BY r.due_at LIMIT 200", i.Workspace)
 	if e != nil {
 		return d, e
 	}
 	for rows.Next() {
 		var r domain.Reminder
-		if e = rows.Scan(&r.ID, &r.MatterID, &r.Title, &r.Revision, &r.Nominal, &r.Due, &r.Quiet, &r.Enabled, &r.SyncStatus); e != nil {
+		if e = rows.Scan(&r.ID, &r.MatterID, &r.Title, &r.Revision, &r.Nominal, &r.Due, &r.Quiet, &r.Enabled, &r.SyncStatus, &r.Repeat, &r.Until); e != nil {
 			rows.Close()
 			return d, e
 		}
@@ -371,14 +393,14 @@ func (s *Store) Dashboard(ctx context.Context, i Identity, mode string) (Dashboa
 	if e != nil {
 		return d, e
 	}
-	rows, e = tx.Query(ctx, "SELECT id,matter_id,status,mode,result,error_code,created_at FROM runs WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 200", i.Workspace)
+	rows, e = tx.Query(ctx, "SELECT id,matter_id,status,mode,result,error_code,created_at,used_memory_count FROM runs WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 200", i.Workspace)
 	if e != nil {
 		return d, e
 	}
 	for rows.Next() {
 		var r domain.Run
 		var b []byte
-		if e = rows.Scan(&r.ID, &r.MatterID, &r.Status, &r.Mode, &b, &r.Error, &r.CreatedAt); e != nil {
+		if e = rows.Scan(&r.ID, &r.MatterID, &r.Status, &r.Mode, &b, &r.Error, &r.CreatedAt, &r.UsedMemories); e != nil {
 			rows.Close()
 			return d, e
 		}
@@ -406,6 +428,40 @@ func (s *Store) Dashboard(ctx context.Context, i Identity, mode string) (Dashboa
 			return d, e
 		}
 		d.Notifications = append(d.Notifications, n)
+	}
+	e = rows.Err()
+	rows.Close()
+	if e != nil {
+		return d, e
+	}
+	rows, e = tx.Query(ctx, "SELECT id,category,content,revision,updated_at FROM memories WHERE workspace_id=$1 ORDER BY updated_at DESC,id LIMIT 50", i.Workspace)
+	if e != nil {
+		return d, e
+	}
+	for rows.Next() {
+		var m domain.Memory
+		if e = rows.Scan(&m.ID, &m.Category, &m.Text, &m.Revision, &m.UpdatedAt); e != nil {
+			rows.Close()
+			return d, e
+		}
+		d.Memories = append(d.Memories, m)
+	}
+	e = rows.Err()
+	rows.Close()
+	if e != nil {
+		return d, e
+	}
+	rows, e = tx.Query(ctx, "SELECT sequence,kind,subject_id,created_at FROM business_events WHERE workspace_id=$1 ORDER BY sequence DESC LIMIT 80", i.Workspace)
+	if e != nil {
+		return d, e
+	}
+	for rows.Next() {
+		var ev domain.Event
+		if e = rows.Scan(&ev.Sequence, &ev.Kind, &ev.SubjectID, &ev.CreatedAt); e != nil {
+			rows.Close()
+			return d, e
+		}
+		d.Activity = append(d.Activity, ev)
 	}
 	e = rows.Err()
 	rows.Close()

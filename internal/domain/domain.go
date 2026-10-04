@@ -12,6 +12,7 @@ import (
 var ErrConflict = errors.New("revision or idempotency conflict")
 var ErrNotFound = errors.New("not found")
 var ErrBusy = errors.New("active run exists")
+var ErrMemoryLimit = errors.New("memory limit reached")
 var Shanghai, _ = time.LoadLocation("Asia/Shanghai")
 
 func ID() string {
@@ -42,24 +43,34 @@ type Matter struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 type Reminder struct {
-	ID         string    `json:"id"`
-	MatterID   string    `json:"matter_id"`
-	Title      string    `json:"title"`
-	Revision   int       `json:"revision"`
-	Nominal    time.Time `json:"nominal_at"`
-	Due        time.Time `json:"due_at"`
-	Quiet      bool      `json:"quiet"`
-	Enabled    bool      `json:"enabled"`
-	SyncStatus string    `json:"sync_status"`
+	ID         string     `json:"id"`
+	MatterID   string     `json:"matter_id"`
+	Title      string     `json:"title"`
+	Revision   int        `json:"revision"`
+	Nominal    time.Time  `json:"nominal_at"`
+	Due        time.Time  `json:"due_at"`
+	Quiet      bool       `json:"quiet"`
+	Enabled    bool       `json:"enabled"`
+	SyncStatus string     `json:"sync_status"`
+	Repeat     string     `json:"repeat"`
+	Until      *time.Time `json:"repeat_until"`
 }
 type Run struct {
+	ID           string    `json:"id"`
+	MatterID     string    `json:"matter_id"`
+	Status       string    `json:"status"`
+	Mode         string    `json:"mode"`
+	Result       *Plan     `json:"result"`
+	Error        string    `json:"error"`
+	CreatedAt    time.Time `json:"created_at"`
+	UsedMemories int       `json:"used_memory_count"`
+}
+type Memory struct {
 	ID        string    `json:"id"`
-	MatterID  string    `json:"matter_id"`
-	Status    string    `json:"status"`
-	Mode      string    `json:"mode"`
-	Result    *Plan     `json:"result"`
-	Error     string    `json:"error"`
-	CreatedAt time.Time `json:"created_at"`
+	Category  string    `json:"category"`
+	Text      string    `json:"text"`
+	Revision  int       `json:"revision"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 type Notification struct {
 	ID        string    `json:"id"`
@@ -83,6 +94,8 @@ type CreateMatter struct {
 	Quiet      bool       `json:"quiet"`
 	Timezone   string     `json:"timezone"`
 	Confirmed  bool       `json:"confirmed"`
+	Repeat     string     `json:"repeat"`
+	Until      *time.Time `json:"repeat_until"`
 }
 
 func (c *CreateMatter) Validate(now time.Time) error {
@@ -104,6 +117,13 @@ func (c *CreateMatter) Validate(now time.Time) error {
 	}
 	if c.Deadline != nil && c.ReminderAt != nil && c.ReminderAt.After(*c.Deadline) {
 		return errors.New("提醒时间不能晚于截止时间")
+	}
+	c.Repeat = NormalizeRepeat(c.Repeat)
+	if c.ReminderAt != nil {
+		return ValidateRecurrence(*c.ReminderAt, c.Until, c.Repeat, c.Quiet, c.Deadline, now)
+	}
+	if c.Repeat != "once" || c.Until != nil {
+		return errors.New("请先设置提醒时间")
 	}
 	return nil
 }

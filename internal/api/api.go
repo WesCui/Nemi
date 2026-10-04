@@ -50,6 +50,9 @@ func (a *API) Handler() http.Handler {
 	m.Handle("PATCH /api/v1/matters/{id}", a.auth(http.HandlerFunc(a.editMatter)))
 	m.Handle("PUT /api/v1/matters/{id}/reminder", a.auth(http.HandlerFunc(a.saveReminder)))
 	m.Handle("POST /api/v1/matters/{id}/runs", a.auth(http.HandlerFunc(a.createRun)))
+	m.Handle("POST /api/v1/memories", a.auth(http.HandlerFunc(a.saveMemory)))
+	m.Handle("PUT /api/v1/memories/{id}", a.auth(http.HandlerFunc(a.saveMemory)))
+	m.Handle("DELETE /api/v1/memories/{id}", a.auth(http.HandlerFunc(a.deleteMemory)))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
@@ -172,6 +175,8 @@ func (a *API) command(w http.ResponseWriter, r *http.Request, b []byte, fn func(
 			sendError(w, 404, "找不到这项事项")
 		case errors.Is(e, domain.ErrBusy):
 			sendError(w, 409, "这项事项已经在整理中")
+		case errors.Is(e, domain.ErrMemoryLimit):
+			sendError(w, 409, "最多保存 50 条偏好，请先整理已有内容")
 		default:
 			slog.Error("business command failed")
 			sendError(w, 503, "暂时无法保存，请稍后重试")
@@ -211,6 +216,13 @@ func (a *API) editMatter(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if p.Source != nil {
+		*p.Source = strings.TrimSpace(*p.Source)
+		if len(*p.Source) > 12000 {
+			sendError(w, 400, "资料不超过 12000 字节")
+			return
+		}
+	}
 	if p.Status != nil && *p.Status != "ACTIVE" && *p.Status != "COMPLETED" {
 		sendError(w, 400, "事项状态不正确")
 		return
@@ -242,13 +254,25 @@ func (a *API) saveReminder(w http.ResponseWriter, r *http.Request) {
 		sendError(w, 400, "提醒日期应在未来两年内")
 		return
 	}
+	p.Repeat = domain.NormalizeRepeat(p.Repeat)
+	if p.Repeat != "once" && p.Repeat != "daily" && p.Repeat != "weekdays" && p.Repeat != "weekly" {
+		sendError(w, 400, "不支持的重复频率")
+		return
+	}
+	if p.Enabled {
+		if e = domain.ValidateRecurrence(*p.At, p.Until, p.Repeat, p.Quiet, nil, time.Now()); e != nil {
+			sendError(w, 400, e.Error())
+			return
+		}
+	}
 	a.command(w, r, b, func(tx pgx.Tx) (any, int, error) {
 		return a.Store.SaveReminder(r.Context(), tx, identity(r).Workspace, r.PathValue("id"), p)
 	})
 }
 func (a *API) createRun(w http.ResponseWriter, r *http.Request) {
 	var p struct {
-		Expected int `json:"expected_revision"`
+		Expected  int  `json:"expected_revision"`
+		UseMemory bool `json:"use_memory"`
 	}
 	b, e := decode(w, r, &p)
 	if e != nil || p.Expected < 1 {
@@ -256,7 +280,7 @@ func (a *API) createRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.command(w, r, b, func(tx pgx.Tx) (any, int, error) {
-		return a.Store.CreateRun(r.Context(), tx, identity(r).Workspace, r.PathValue("id"), a.Gateway.Mode(), a.Gateway.Profile(), p.Expected)
+		return a.Store.CreateRun(r.Context(), tx, identity(r).Workspace, r.PathValue("id"), a.Gateway.Mode(), a.Gateway.Profile(), p.Expected, p.UseMemory)
 	})
 }
 func (a *API) dashboard(w http.ResponseWriter, r *http.Request) {

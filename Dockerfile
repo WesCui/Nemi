@@ -11,5 +11,6 @@ RUN CGO_ENABLED=0 go build -o /out/control-api ./cmd/control-api && \
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out /app
+COPY docs/licenses /usr/share/licenses/nemi
 USER 65532:65532
 ENTRYPOINT ["/app/control-api"]
