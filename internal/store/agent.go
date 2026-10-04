@@ -138,9 +138,12 @@ func (s *Store) DecideAction(ctx context.Context, tx pgx.Tx, w, id, status, resu
 
 // Tool reads expose bounded domain data, never sessions, model keys or app secrets.
 func (s *Store) AgentMatters(ctx context.Context, w string) ([]map[string]any, error) {
+	return s.AgentMatterPage(ctx, w, "", "", 0)
+}
+func (s *Store) AgentMatterPage(ctx context.Context, w, query, status string, offset int) ([]map[string]any, error) {
 	rows, err := s.Pool.Query(ctx, `SELECT m.id,m.title,m.category,m.status,m.deadline,r.nominal_at,r.due_at,r.enabled
  FROM matters m LEFT JOIN reminders r ON r.workspace_id=m.workspace_id AND r.matter_id=m.id
- WHERE m.workspace_id=$1 ORDER BY m.created_at DESC,m.id DESC LIMIT 20`, w)
+ WHERE m.workspace_id=$1 AND ($2='' OR m.title ILIKE '%'||$2||'%') AND (($3='' AND m.status<>'ARCHIVED') OR m.status=$3) ORDER BY m.created_at DESC,m.id DESC LIMIT 20 OFFSET $4`, w, query, status, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +168,10 @@ func (s *Store) AgentMatter(ctx context.Context, w, id string) (domain.Matter, e
 	return m, err
 }
 func (s *Store) AgentMemories(ctx context.Context, w string) ([]domain.Memory, error) {
-	rows, err := s.Pool.Query(ctx, "SELECT id,category,content,revision,updated_at FROM memories WHERE workspace_id=$1 ORDER BY updated_at DESC,id LIMIT 8", w)
+	return s.AgentMemoryPage(ctx, w, "", 0)
+}
+func (s *Store) AgentMemoryPage(ctx context.Context, w, query string, offset int) ([]domain.Memory, error) {
+	rows, err := s.Pool.Query(ctx, "SELECT id,category,content,revision,updated_at FROM memories WHERE workspace_id=$1 AND ($2='' OR content ILIKE '%'||$2||'%') ORDER BY updated_at DESC,id LIMIT 8 OFFSET $3", w, query, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +217,7 @@ func (s *Store) ConversationActionState(ctx context.Context, r Ref) ([]map[strin
 		if err = rows.Scan(&id, &title, &kind, &status, &result, &dispatch); err != nil {
 			return nil, err
 		}
-		out = append(out, map[string]any{"id": id, "title": title, "kind": kind, "status": status, "matter_id": result, "dispatch_status": dispatch})
+		out = append(out, map[string]any{"id": id, "title": title, "kind": kind, "status": status, "matter_id": result, "result_id": result, "dispatch_status": dispatch})
 	}
 	return out, rows.Err()
 }

@@ -79,6 +79,16 @@ func TestE2EWorkerService(t *testing.T) {
 			}
 		} else if !strings.Contains(body.Messages[0].Content, "仅输出 JSON") {
 			last := body.Messages[len(body.Messages)-1].Content
+			userText := ""
+			for _, message := range body.Messages {
+				if message.Role == "user" {
+					userText = message.Content
+				}
+			}
+			dataName, dataArgs, dataContent, dataWorkflow, dataErr := dataFixture(userText, body.Messages[len(body.Messages)-1].Role, last)
+			if dataErr != nil {
+				return nil, dataErr
+			}
 			fileWorkflow := false
 			for _, m := range body.Messages {
 				if m.Role == "user" && m.Content == "统计这份账单并生成Excel汇总" {
@@ -95,7 +105,12 @@ func TestE2EWorkerService(t *testing.T) {
 			if strings.Contains(last, "触发认证失败") {
 				return &http.Response{StatusCode: 401, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"fixture authentication failed"}}`))}, nil
 			}
-			if fileWorkflow {
+			if dataWorkflow {
+				content = dataContent
+				if dataName != "" {
+					toolCall = map[string]any{"id": "fixture_data_" + dataName, "type": "function", "function": map[string]string{"name": dataName, "arguments": dataArgs}}
+				}
+			} else if fileWorkflow {
 				name, args := "list_files", "{}"
 				if body.Messages[len(body.Messages)-1].Role == "tool" {
 					var value map[string]json.RawMessage
@@ -156,7 +171,7 @@ func TestE2EWorkerService(t *testing.T) {
 			} else {
 				content = "收到：" + last
 			}
-			if !fileWorkflow && len(body.Messages) > 2 && body.Messages[len(body.Messages)-1].Role != "tool" {
+			if !fileWorkflow && !dataWorkflow && len(body.Messages) > 2 && body.Messages[len(body.Messages)-1].Role != "tool" {
 				content += "；前文：" + body.Messages[1].Content
 			}
 		}
@@ -178,4 +193,84 @@ func TestE2EWorkerService(t *testing.T) {
 	if err = w.Run(worker.InterruptCh()); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// The test provider derives IDs and revisions from actual tool responses. This
+// drives PG/Temporal/UI contracts without any external account or paid model.
+func dataFixture(user, role, last string) (name, args, content string, handled bool, err error) {
+	op, query := "", ""
+	for prefix, operation := range map[string]string{"把事项清单第一项标记完成：": "checklist", "归档事项：": "archive", "停用事项提醒：": "reminder", "记住我的偏好：": "save", "移除这条偏好：": "delete"} {
+		if strings.HasPrefix(user, prefix) {
+			op, query = operation, strings.TrimPrefix(user, prefix)
+			break
+		}
+	}
+	if op == "" {
+		return
+	}
+	handled = true
+	encode := func(value any) string { b, _ := json.Marshal(value); return string(b) }
+	if role != "tool" {
+		if op == "save" {
+			name = "propose_memory"
+			args = encode(map[string]any{"operation": "save", "expected_revision": 0, "category": "life", "text": query})
+		} else if op == "delete" {
+			name = "list_memories"
+			args = encode(map[string]any{"query": query})
+		} else {
+			name = "list_matters"
+			args = encode(map[string]any{"query": query})
+		}
+		return
+	}
+	var list []map[string]any
+	if json.Unmarshal([]byte(last), &list) == nil {
+		if len(list) != 1 {
+			err = fmt.Errorf("expected one matching data record")
+			return
+		}
+		if op == "delete" {
+			name = "propose_memory"
+			args = encode(map[string]any{"operation": "delete", "memory_id": list[0]["id"], "expected_revision": list[0]["revision"]})
+		} else if op == "reminder" {
+			name = "get_reminder"
+			args = encode(map[string]any{"matter_id": list[0]["id"]})
+		} else {
+			name = "get_matter"
+			args = encode(map[string]any{"id": list[0]["id"]})
+		}
+		return
+	}
+	var value map[string]any
+	if json.Unmarshal([]byte(last), &value) != nil {
+		err = fmt.Errorf("invalid data tool output")
+		return
+	}
+	if value["status"] == "PENDING" {
+		content = "已准备好修改，请核对后确认。"
+		return
+	}
+	if op == "reminder" {
+		r, ok := value["reminder"].(map[string]any)
+		if !ok {
+			err = fmt.Errorf("no reminder")
+			return
+		}
+		name = "propose_reminder_update"
+		args = encode(map[string]any{"matter_id": value["matter_id"], "matter_revision": value["matter_revision"], "expected_revision": r["revision"], "enabled": false})
+		return
+	}
+	if op == "checklist" || op == "archive" {
+		p := map[string]any{"matter_id": value["id"], "expected_revision": value["revision"]}
+		if op == "checklist" {
+			p["checklist_changes"] = []any{map[string]any{"index": 0, "done": true}}
+		} else {
+			p["status"] = "ARCHIVED"
+		}
+		name = "propose_matter_update"
+		args = encode(p)
+		return
+	}
+	err = fmt.Errorf("unexpected data tool response")
+	return
 }

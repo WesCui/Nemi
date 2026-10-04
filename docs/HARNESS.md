@@ -1,6 +1,6 @@
 # Nemi 对话 Agent harness
 
-日期：2026-10-05；实现 v0.7。主入口是自然语言目标，应用连接、信息补充和操作确认留在妮米对话中。用户不用自行选择工具或理解执行循环。首次获取平台权限仍由用户或管理员授权，内部配置卡片不能替代平台授权。
+日期：2026-10-05；实现 v0.9。主入口是自然语言目标，应用连接、信息补充和操作确认留在妮米对话中。用户不用自行选择工具或理解执行循环。首次获取平台权限仍由用户或管理员授权，内部配置卡片不能替代平台授权。
 
 ## 选型与实际复用
 
@@ -47,7 +47,7 @@ update_plan 为复杂任务保存目标及 1–8 个步骤，状态为 pending /
 
 ## 对话应用操作
 
-十项工具：get_current_time、list_matters、get_matter、list_memories、list_connections、read_feishu_document、propose_matter、update_plan、request_connection、propose_message。
+原有十项工具：get_current_time、list_matters、get_matter、list_memories、list_connections、read_feishu_document、propose_matter、update_plan、request_connection、propose_message。v0.8 增加六项[资料工具](./FILES.md)，v0.9 增加 get_reminder、propose_matter_update、propose_reminder_update、propose_memory，合计二十项。具体修改、审批、归档和偏好移除合同见[对话修改](./AGENT_ACTIONS.md)。
 
 - request_connection 在对话中提供飞书文档、飞书群、企业微信群、钉钉群的配置卡片。凭据专用字段直达现有配置 API，不写入聊天、模型上下文或 Temporal 参数。保存后可以点击继续原任务，由真实模型继续处理。
 - read_feishu_document 读取用户明确提供且已授权的 docx 正文，并给模型继续分析。缺少连接时 Agent 引导配置；当前没有全量飞书聊天读取、wiki、附件或写回权限。
@@ -60,6 +60,6 @@ update_plan 为复杂任务保存目标及 1–8 个步骤，状态为 pending /
 
 单元和 nemi_test 集成验证覆盖：连续两次摘要仍保留最初约束、完整历史、下一轮计划恢复、摘要费用、无效摘要不重试、规范参数循环保护、停止后的工具 / 计划 / 摘要写入拒绝、迟到费用结算、确认前无投递、接收群变更拒绝旧提案、未知回执不重发和跨空间隔离。浏览器验证内部连接、继续任务、消息取消、移动端及刷新恢复。
 
-测试模型与平台协议替身只存在测试程序中，不能当作外部账号真实验收。当前本机未配置真实模型及平台凭据。
+测试模型与平台协议替身只存在测试程序中，不能当作外部账号真实验收。本机已有经过检查的用户模型和成功对话；新增文件与数据修改工具尚未额外用用户 Key 付费验收，平台实账号验收仍缺证据。
 
-后续仍需工具输入 / 输出持久回放、长期任务里程碑与可验证完成条件、用户授权后的 OAuth 连接、浏览器沙箱和接管、文件产物、检索、语义记忆与主动跟进。当前没有 Claude Code 的 Shell / 文件修改能力，也没有 DeepSeek 完整插件运行时或 Muse 的云端电脑。
+后续仍需工具输入 / 输出持久回放、审批后自动续接、长期任务里程碑与可验证完成条件、用户授权后的 OAuth 连接、浏览器沙箱和接管、更丰富文件产物、检索、语义记忆与主动跟进。当前没有 Claude Code 的 Shell / 文件修改能力，也没有 DeepSeek 完整插件运行时或 Muse 的云端电脑。

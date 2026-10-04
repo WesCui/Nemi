@@ -1,0 +1,70 @@
+import { test, expect, type Page } from "@playwright/test";
+
+test.beforeEach(async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("邀请口令").fill(process.env.NEMI_TEST_INVITE_CODE!);
+  await page.getByRole("button", { name: "进入我的空间" }).click();
+  await expect(page.getByRole("heading", { name: "有什么想交给妮米？" })).toBeVisible();
+  await page.getByRole("button", { name: "新对话", exact: true }).click();
+});
+async function ask(page: Page, text: string) {
+  await page.getByLabel("告诉妮米你想做的事").fill(text);
+  await page.getByRole("button", { name: "发送消息", exact: true }).click();
+  const card = page.getByLabel("数据修改提案", { exact: true }).last();
+  await expect(card.getByRole("button", { name: "确认修改" })).toBeVisible();
+  return card;
+}
+test("natural-language checklist, reminder and archive changes stay inside chat and persist", async ({ page }) => {
+  const title = `旅行准备 ${Date.now()}`;
+  const at = new Date(Date.now() + 86400000).toISOString();
+  const headers = { Origin: process.env.NEMI_BASE_URL!, "Idempotency-Key": crypto.randomUUID() };
+  const response = await page.request.post("/api/v1/matters", { headers, data: { title, source: "保留的原始资料", category: "travel", confirmed: true, timezone: "Asia/Shanghai", reminder_at: at, repeat: "once" } });
+  expect(response.status()).toBe(201);
+  const created = await response.json();
+  const items = Array.from({ length: 24 }, (_, i) => ({ text: `准备第${i + 1}项`, done: false }));
+  const setup = await page.request.patch(`/api/v1/matters/${created.id}`, { headers: { ...headers, "Idempotency-Key": crypto.randomUUID() }, data: { expected_revision: 1, items } });
+  expect(setup.status()).toBe(200);
+  const read = async () => (await (await page.request.get("/api/v1/dashboard")).json());
+  let card = await ask(page, `把事项清单第一项标记完成：${title}`);
+  expect((await read()).matters.find((m: { id: string }) => m.id === created.id).items[0].done).toBe(false);
+  await page.reload();
+  card = page.getByLabel("数据修改提案", { exact: true }).last();
+  await expect(card.getByText("✓ 准备第1项", { exact: false })).toBeVisible();
+  await page.screenshot({ path: "test-results/nemi-v09-data-review.png", fullPage: true, animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: "test-results/nemi-v09-data-review-mobile.png", fullPage: true, animations: "disabled" });
+  await card.getByRole("button", { name: "确认修改" }).click();
+  await expect(card.getByText("已确认并保存", { exact: true })).toBeVisible();
+  const matter = (await read()).matters.find((m: { id: string }) => m.id === created.id);
+  expect(matter.revision).toBe(3); expect(matter.items).toHaveLength(24);
+  expect(matter.items[0].done).toBe(true); expect(matter.items[23]).toEqual(items[23]);
+  card = await ask(page, `停用事项提醒：${title}`);
+  await card.getByRole("button", { name: "确认修改" }).click();
+  await expect(card.getByText("已确认并保存", { exact: true })).toBeVisible();
+  expect((await read()).reminders.find((r: { matter_id: string }) => r.matter_id === created.id).enabled).toBe(false);
+  card = await ask(page, `归档事项：${title}`);
+  await expect(card.getByText(/历史和资料保留/)).toBeVisible();
+  await card.getByRole("button", { name: "确认修改" }).click();
+  await expect(card.getByText("已确认并保存", { exact: true })).toBeVisible();
+  expect((await read()).matters.some((m: { id: string }) => m.id === created.id)).toBe(false);
+  expect(new URL(page.url()).pathname).toBe("/");
+  await page.reload();
+  await expect(page.getByLabel("数据修改提案", { exact: true }).last().getByText("已确认并保存", { exact: true })).toBeVisible();
+});
+test("preference save and removal require review and leave the conversation intact", async ({ page }) => {
+  const text = `个人偏好 ${Date.now()}：早餐不吃辣`;
+  let card = await ask(page, `记住我的偏好：${text}`);
+  const read = async () => (await (await page.request.get("/api/v1/dashboard")).json());
+  expect((await read()).memories.some((m: { text: string }) => m.text === text)).toBe(false);
+  await card.getByRole("button", { name: "确认修改" }).click();
+  await expect(card.getByText("已确认并保存", { exact: true })).toBeVisible();
+  expect((await read()).memories.filter((m: { text: string }) => m.text === text)).toHaveLength(1);
+  card = await ask(page, `移除这条偏好：${text}`);
+  await expect(card.getByText("只移除保存的偏好，不删除聊天原文。")).toBeVisible();
+  await card.getByRole("button", { name: "确认修改" }).click();
+  await expect(card.getByText("已确认并保存", { exact: true })).toBeVisible();
+  expect((await read()).memories.some((m: { text: string }) => m.text === text)).toBe(false);
+  await page.reload();
+  await expect(page.getByLabel("对话内容", { exact: true }).getByText(`记住我的偏好：${text}`, { exact: true })).toBeVisible();
+});

@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"nemi/internal/domain"
+	"nemi/internal/store"
 )
 
 func (a *API) decideAgentAction(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +47,14 @@ func (a *API) decideAgentAction(w http.ResponseWriter, r *http.Request) {
 		}
 		if action.Status != "PENDING" {
 			if (approve && action.Status == "APPROVED") || (!approve && action.Status == "DECLINED") {
-				return map[string]string{"status": action.Status, "matter_id": action.ResultID}, 200, nil
+				result := map[string]string{"status": action.Status, "result_id": action.ResultID}
+				if action.Kind == "create_matter" {
+					result["matter_id"] = action.ResultID
+				}
+				if action.Kind == "connect_app" {
+					result["app_id"] = action.ResultID
+				}
+				return result, 200, nil
 			}
 			return nil, 0, domain.ErrConflict
 		}
@@ -71,6 +79,16 @@ func (a *API) decideAgentAction(w http.ResponseWriter, r *http.Request) {
 				return nil, 0, err
 			}
 			return map[string]string{"status": "APPROVED", "app_id": p.ID}, 200, nil
+		}
+		if store.DataAction(action.Kind) {
+			id, err := a.Store.ApplyDataAction(r.Context(), tx, ws, action)
+			if err != nil {
+				return nil, 0, err
+			}
+			if err = a.Store.DecideAction(r.Context(), tx, ws, action.ID, "APPROVED", id); err != nil {
+				return nil, 0, err
+			}
+			return map[string]string{"status": "APPROVED", "result_id": id}, 200, nil
 		}
 		if action.Kind != "create_matter" {
 			return nil, 0, domain.ErrConflict

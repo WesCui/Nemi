@@ -122,3 +122,6 @@ CREATE TABLE IF NOT EXISTS chat_run_files (
  FOREIGN KEY(workspace_id,file_id) REFERENCES workspace_files(workspace_id,id)
 );
 INSERT INTO schema_versions(version) VALUES(9) ON CONFLICT DO NOTHING;
+ALTER TABLE matters DROP CONSTRAINT IF EXISTS matters_status_check;
+ALTER TABLE matters ADD CONSTRAINT matters_status_check CHECK(status IN ('ACTIVE','COMPLETED','ARCHIVED'));
+INSERT INTO schema_versions(version) VALUES(10) ON CONFLICT DO NOTHING;

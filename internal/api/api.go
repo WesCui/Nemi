@@ -207,7 +207,11 @@ func (a *API) command(w http.ResponseWriter, r *http.Request, b []byte, fn func(
 	if e != nil {
 		switch {
 		case errors.Is(e, domain.ErrConflict):
-			sendError(w, 409, "内容已更新或请求标识重复，请刷新后重试")
+			if strings.HasPrefix(r.URL.Path, "/api/v1/agent/actions/") {
+				sendError(w, 409, "内容已经更新或提案已取消，请让妮米重新准备后确认")
+			} else {
+				sendError(w, 409, "内容已更新或请求标识重复，请刷新后重试")
+			}
 		case errors.Is(e, domain.ErrNotFound):
 			sendError(w, 404, "找不到这项事项")
 		case errors.Is(e, domain.ErrBusy):
@@ -276,7 +280,7 @@ func (a *API) editMatter(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if p.Status != nil && *p.Status != "ACTIVE" && *p.Status != "COMPLETED" {
+	if p.Status != nil && *p.Status != "ACTIVE" && *p.Status != "COMPLETED" && *p.Status != "ARCHIVED" {
 		sendError(w, 400, "事项状态不正确")
 		return
 	}

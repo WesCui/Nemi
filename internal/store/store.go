@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -56,10 +58,10 @@ func (s *Store) Migrate(ctx context.Context) error {
 		if e = tx.QueryRow(ctx, "SELECT COALESCE(max(version),0) FROM schema_versions").Scan(&version); e != nil {
 			return e
 		}
-		if version > 9 {
+		if version > 10 {
 			return errors.New("database schema is newer than this runtime")
 		}
-		if version == 9 {
+		if version == 10 {
 			return tx.Commit(ctx)
 		}
 	}
@@ -218,16 +220,56 @@ func (s *Store) CreateMatter(ctx context.Context, tx pgx.Tx, w string, c domain.
 }
 
 type EditMatter struct {
-	Expected int            `json:"expected_revision"`
-	Title    *string        `json:"title"`
-	Source   *string        `json:"source"`
-	Status   *string        `json:"status"`
-	Items    *[]domain.Item `json:"items"`
+	Expected      int            `json:"expected_revision"`
+	Title         *string        `json:"title,omitempty"`
+	Source        *string        `json:"source,omitempty"`
+	Status        *string        `json:"status,omitempty"`
+	Items         *[]domain.Item `json:"items,omitempty"`
+	Deadline      *time.Time     `json:"deadline,omitempty"`
+	ClearDeadline bool           `json:"clear_deadline,omitempty"`
+}
+
+func (p *EditMatter) Validate(now time.Time) error {
+	if p.Expected < 1 || (p.Title == nil && p.Source == nil && p.Status == nil && p.Items == nil && p.Deadline == nil && !p.ClearDeadline) {
+		return errors.New("ACTION_INVALID")
+	}
+	if p.Title != nil {
+		*p.Title = strings.TrimSpace(*p.Title)
+		if len([]rune(*p.Title)) < 1 || len([]rune(*p.Title)) > 100 || !utf8.ValidString(*p.Title) {
+			return errors.New("ACTION_INVALID")
+		}
+	}
+	if p.Source != nil {
+		*p.Source = strings.TrimSpace(*p.Source)
+		if len(*p.Source) > 12000 || !utf8.ValidString(*p.Source) {
+			return errors.New("ACTION_INVALID")
+		}
+	}
+	if p.Status != nil && *p.Status != "ACTIVE" && *p.Status != "COMPLETED" && *p.Status != "ARCHIVED" {
+		return errors.New("ACTION_INVALID")
+	}
+	if p.Items != nil {
+		if len(*p.Items) > 60 {
+			return errors.New("ACTION_INVALID")
+		}
+		for _, i := range *p.Items {
+			if strings.TrimSpace(i.Text) == "" || len([]rune(i.Text)) > 150 || !utf8.ValidString(i.Text) {
+				return errors.New("ACTION_INVALID")
+			}
+		}
+	}
+	if p.Deadline != nil && (p.ClearDeadline || !p.Deadline.After(now) || p.Deadline.After(now.AddDate(2, 0, 0))) {
+		return errors.New("ACTION_INVALID")
+	}
+	return nil
 }
 
 func (s *Store) EditMatter(ctx context.Context, tx pgx.Tx, w, id string, p EditMatter) (any, int, error) {
 	m, e := scanMatter(tx.QueryRow(ctx, matterSelect+" WHERE workspace_id=$1 AND id=$2 FOR UPDATE", w, id))
 	if e != nil {
+		return nil, 0, e
+	}
+	if e := p.Validate(time.Now()); e != nil {
 		return nil, 0, e
 	}
 	if m.Revision != p.Expected {
@@ -242,16 +284,29 @@ func (s *Store) EditMatter(ctx context.Context, tx pgx.Tx, w, id string, p EditM
 	if p.Items != nil {
 		m.Items = *p.Items
 	}
+	if p.Deadline != nil {
+		var due, until *time.Time
+		e = tx.QueryRow(ctx, "SELECT due_at,repeat_until FROM reminders WHERE workspace_id=$1 AND matter_id=$2 AND enabled FOR UPDATE", w, id).Scan(&due, &until)
+		if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+			return nil, 0, e
+		}
+		if (due != nil && due.After(*p.Deadline)) || (until != nil && until.After(*p.Deadline)) {
+			return nil, 0, errors.New("ACTION_INVALID")
+		}
+		m.Deadline = p.Deadline
+	} else if p.ClearDeadline {
+		m.Deadline = nil
+	}
 	if p.Status != nil {
 		m.Status = *p.Status
 	}
 	m.Revision++
 	items, _ := json.Marshal(m.Items)
-	_, e = tx.Exec(ctx, "UPDATE matters SET title=$3,status=$4,items=$5,revision=$6,source=$7 WHERE workspace_id=$1 AND id=$2", w, id, m.Title, m.Status, items, m.Revision, m.Source)
+	_, e = tx.Exec(ctx, "UPDATE matters SET title=$3,status=$4,items=$5,revision=$6,source=$7,deadline=$8 WHERE workspace_id=$1 AND id=$2", w, id, m.Title, m.Status, items, m.Revision, m.Source, m.Deadline)
 	if e != nil {
 		return nil, 0, e
 	}
-	if m.Status == "COMPLETED" {
+	if m.Status == "COMPLETED" || m.Status == "ARCHIVED" {
 		var rid string
 		var rev int
 		e = tx.QueryRow(ctx, "UPDATE reminders SET enabled=false,revision=revision+1,sync_status='DISABLED' WHERE workspace_id=$1 AND matter_id=$2 AND enabled RETURNING id,revision-1", w, id).Scan(&rid, &rev)
@@ -390,7 +445,7 @@ func (s *Store) Dashboard(ctx context.Context, i Identity, mode string) (Dashboa
 		return d, e
 	}
 	defer tx.Rollback(ctx)
-	rows, e := tx.Query(ctx, matterSelect+" WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 200", i.Workspace)
+	rows, e := tx.Query(ctx, matterSelect+" WHERE workspace_id=$1 AND status<>'ARCHIVED' ORDER BY created_at DESC LIMIT 200", i.Workspace)
 	if e != nil {
 		return d, e
 	}

@@ -2286,3 +2286,10 @@ textarea::placeholder {
 .file-table tr:first-child { font-weight: 500; background: rgba(60, 85, 70, .04); }
 @media (max-width:620px) { .file-dialog { padding: 18px; } .file-text { padding: 12px; } }
 .agent-recipient { color: var(--muted); font-size: 12px; margin-bottom: 14px !important; }
+.agent-diff-head { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-size: 11px; color: var(--muted); margin-bottom: 12px; }
+.agent-diff h4 { font-size: 12px; font-weight: 500; margin: 14px 0 8px; }
+.agent-diff > div { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 16px; }
+.agent-diff p { padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); font-size: 12px !important; max-height: 190px; overflow: auto; }
+.agent-diff p + p { background: #eef3ec; border-color: #cbd8cc; }
+.agent-data-note { color: var(--muted); font-size: 11px !important; margin-top: 14px !important; }
+@media (max-width:620px) { .agent-diff-head, .agent-diff > div { gap: 8px; } .agent-diff p { padding: 8px; } }

@@ -89,7 +89,7 @@ func TestAgentProposesThenApprovalCreatesExactlyOneMatterAndReminder(t *testing.
 			Messages []struct{ Role, Content string }
 			Tools    []any
 		}
-		if json.NewDecoder(r.Body).Decode(&b) != nil || len(b.Tools) != 16 {
+		if json.NewDecoder(r.Body).Decode(&b) != nil || len(b.Tools) != 20 {
 			t.Fatal("missing tools")
 		}
 		var choice any
