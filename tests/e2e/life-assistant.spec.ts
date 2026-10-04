@@ -9,9 +9,9 @@ test.beforeEach(async ({ page }, info) => {
   await page.goto("/");
   await page.getByLabel("邀请口令").fill(code);
   await page.getByRole("button", { name: "进入我的空间" }).click();
-  await expect(page.getByRole("heading", { name: "今天的安排" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "有什么想交给妮米？" })).toBeVisible();
   const mode = await page.request.get("/api/v1/me");
-  expect((await mode.json()).model_mode).toBe("demo");
+  expect((await mode.json()).model_mode).toBe("managed");
 });
 
 test("confirmed matter, durable plan, revisioned reminder, checklist and completion", async ({
@@ -45,7 +45,7 @@ test("confirmed matter, durable plan, revisioned reminder, checklist and complet
   const detail = page.getByRole("dialog", { name: "事项详情" });
   await expect(detail.getByRole("heading", { name: title })).toBeVisible();
   await expect(
-    detail.getByText("清单已生成 · 本地演示生成", { exact: true }),
+    detail.getByText("清单已生成", { exact: true }),
   ).toBeVisible();
   await expect(
     detail.getByText("确认出发时间、同行人数与预算", { exact: true }),

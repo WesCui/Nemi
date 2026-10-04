@@ -35,7 +35,7 @@ func TestRecurringDeliveryAdvancesOnceSkipsMissedAndCanStop(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	d, e := s.Dashboard(ctx, Identity{Workspace: w}, "demo")
+	d, e := s.Dashboard(ctx, Identity{Workspace: w}, "fixture")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -56,7 +56,7 @@ func TestRecurringDeliveryAdvancesOnceSkipsMissedAndCanStop(t *testing.T) {
 	if e = s.DeliverReminder(ctx, Ref{w, rid}, 2); e != nil {
 		t.Fatal(e)
 	}
-	d, e = s.Dashboard(ctx, Identity{Workspace: w}, "demo")
+	d, e = s.Dashboard(ctx, Identity{Workspace: w}, "fixture")
 	if e != nil || len(d.Notifications) != 1 || d.Reminders[0].Enabled {
 		t.Fatal("stopped recurrence delivered", e)
 	}
@@ -73,14 +73,14 @@ func TestRecurringEndDateDisablesFutureWork(t *testing.T) {
 	if e := s.DeliverReminder(ctx, Ref{w, rid}, 1); e != nil {
 		t.Fatal(e)
 	}
-	d, e := s.Dashboard(ctx, Identity{Workspace: w}, "demo")
+	d, e := s.Dashboard(ctx, Identity{Workspace: w}, "fixture")
 	if e != nil || d.Reminders[0].Enabled || d.Reminders[0].SyncStatus != "ENDED" {
 		t.Fatal("end date ignored", e)
 	}
 	if e = s.DeliverReminder(ctx, Ref{w, rid}, 1); e != nil {
 		t.Fatal(e)
 	}
-	d, e = s.Dashboard(ctx, Identity{Workspace: w}, "demo")
+	d, e = s.Dashboard(ctx, Identity{Workspace: w}, "fixture")
 	if e != nil || len(d.Notifications) != 1 {
 		t.Fatal("ended occurrence delivered twice", e)
 	}
@@ -116,7 +116,7 @@ func TestPreferenceScopeOptOutAndDeletionBeforeSubmission(t *testing.T) {
 	savePreference(t, s, other, "general", "其他用户的偏好")
 	newRun := func(use bool) (domain.Matter, Ref) {
 		m := create(t, s, w, nil)
-		r, e := s.Command(ctx, w, domain.ID(), "run", nil, func(tx pgx.Tx) (any, int, error) { return s.CreateRun(ctx, tx, w, m.ID, "demo", "fixture", 1, use) })
+		r, e := s.Command(ctx, w, domain.ID(), "run", nil, func(tx pgx.Tx) (any, int, error) { return s.CreateRun(ctx, tx, w, m.ID, "fixture", "fixture", 1, use) })
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -177,7 +177,7 @@ func TestPreferenceScopeOptOutAndDeletionBeforeSubmission(t *testing.T) {
 	if !errors.Is(e, domain.ErrNotFound) {
 		t.Fatal("cross-space preference mutation permitted")
 	}
-	d, e := s.Dashboard(ctx, Identity{Workspace: w}, "demo")
+	d, e := s.Dashboard(ctx, Identity{Workspace: w}, "fixture")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -192,7 +192,7 @@ func TestPreferenceSelectionHasFixedContextBudget(t *testing.T) {
 		savePreference(t, s, w, "general", strings.Repeat("偏", 490))
 	}
 	m := create(t, s, w, nil)
-	r, e := s.Command(ctx, w, domain.ID(), "bounded-memory-run", nil, func(tx pgx.Tx) (any, int, error) { return s.CreateRun(ctx, tx, w, m.ID, "demo", "fixture", 1, true) })
+	r, e := s.Command(ctx, w, domain.ID(), "bounded-memory-run", nil, func(tx pgx.Tx) (any, int, error) { return s.CreateRun(ctx, tx, w, m.ID, "fixture", "fixture", 1, true) })
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -206,7 +206,7 @@ func TestPreferenceSelectionHasFixedContextBudget(t *testing.T) {
 	if _, e = s.ClaimModel(ctx, ref); e != nil {
 		t.Fatal(e)
 	}
-	d, e := s.Dashboard(ctx, Identity{Workspace: w}, "demo")
+	d, e := s.Dashboard(ctx, Identity{Workspace: w}, "fixture")
 	if e != nil || d.Runs[0].UsedMemories != 1 {
 		t.Fatal("context budget not applied", e)
 	}
@@ -216,7 +216,7 @@ func TestUpdatedSourceStartsNewContextAndProtectsCurrentMatter(t *testing.T) {
 	s, w := fixture(t)
 	ctx := context.Background()
 	m := create(t, s, w, nil)
-	rr, e := s.Command(ctx, w, domain.ID(), "run", nil, func(tx pgx.Tx) (any, int, error) { return s.CreateRun(ctx, tx, w, m.ID, "demo", "fixture", 1) })
+	rr, e := s.Command(ctx, w, domain.ID(), "run", nil, func(tx pgx.Tx) (any, int, error) { return s.CreateRun(ctx, tx, w, m.ID, "fixture", "fixture", 1) })
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -239,11 +239,11 @@ func TestUpdatedSourceStartsNewContextAndProtectsCurrentMatter(t *testing.T) {
 	if e = s.FinishRun(ctx, ref, domain.Plan{Summary: "旧结果", Items: []string{"旧资料清单"}}, 0, 0, 0); e != nil {
 		t.Fatal(e)
 	}
-	d, e := s.Dashboard(ctx, Identity{Workspace: w}, "demo")
+	d, e := s.Dashboard(ctx, Identity{Workspace: w}, "fixture")
 	if e != nil || d.Matters[0].Source != source || len(d.Matters[0].Items) != 0 {
 		t.Fatal("old run overwrote redirected matter", e)
 	}
-	rr, e = s.Command(ctx, w, domain.ID(), "new-run", nil, func(tx pgx.Tx) (any, int, error) { return s.CreateRun(ctx, tx, w, m.ID, "demo", "fixture", 2) })
+	rr, e = s.Command(ctx, w, domain.ID(), "new-run", nil, func(tx pgx.Tx) (any, int, error) { return s.CreateRun(ctx, tx, w, m.ID, "fixture", "fixture", 2) })
 	if e != nil {
 		t.Fatal(e)
 	}

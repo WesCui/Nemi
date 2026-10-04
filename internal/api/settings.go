@@ -26,7 +26,7 @@ func (a *API) models(w http.ResponseWriter, r *http.Request) {
 		sendError(w, 503, "暂时无法读取模型配置")
 		return
 	}
-	send(w, 200, map[string]any{"models": list, "default_id": selected, "providers": model.Providers, "fallback_mode": a.Gateway.Mode()})
+	send(w, 200, map[string]any{"models": list, "default_id": selected, "providers": model.Providers, "server_available": a.Gateway.Ready()})
 }
 func (a *API) saveModel(w http.ResponseWriter, r *http.Request) {
 	var b struct {

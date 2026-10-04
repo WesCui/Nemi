@@ -56,6 +56,10 @@ func (a *API) Handler() http.Handler {
 		send(w, 200, map[string]any{"user": identity(r), "model_mode": a.Gateway.Mode()})
 	})))
 	m.Handle("GET /api/v1/dashboard", a.auth(http.HandlerFunc(a.dashboard)))
+	m.Handle("GET /api/v1/conversations", a.auth(http.HandlerFunc(a.conversations)))
+	m.Handle("GET /api/v1/conversations/{id}", a.auth(http.HandlerFunc(a.conversation)))
+	m.Handle("POST /api/v1/chat/messages", a.auth(http.HandlerFunc(a.chat)))
+	m.Handle("POST /api/v1/agent/actions/{id}/{decision}", a.auth(http.HandlerFunc(a.decideAgentAction)))
 	m.Handle("GET /api/v1/connections", a.auth(http.HandlerFunc(a.connections)))
 	m.Handle("PUT /api/v1/connections/{id}", a.auth(http.HandlerFunc(a.saveConnection)))
 	m.Handle("GET /api/v1/models", a.auth(http.HandlerFunc(a.models)))
@@ -197,9 +201,16 @@ func (a *API) command(w http.ResponseWriter, r *http.Request, b []byte, fn func(
 		case errors.Is(e, domain.ErrNotFound):
 			sendError(w, 404, "找不到这项事项")
 		case errors.Is(e, domain.ErrBusy):
-			sendError(w, 409, "这项事项已经在整理中")
+			sendError(w, 409, "当前请求仍在处理中，请等待完成")
+		case strings.HasPrefix(e.Error(), "MODEL_"):
+			sendError(w, 412, "模型尚未配置或已不可用，请在首页模型配置中填写有效的 API Key")
+		case strings.HasPrefix(e.Error(), "CHAT_"):
+			messages := map[string]string{"CHAT_QUEUE_FULL": "待处理对话较多，请稍后再发送", "CHAT_LIMIT_REACHED": "已达到 100 段对话的上限", "CHAT_TURN_LIMIT": "这段对话已达到 200 轮，请开始新对话", "CHAT_INPUT_TOO_LARGE": "消息内容过长，请缩短后发送"}
+			sendError(w, 422, messages[e.Error()])
 		case errors.Is(e, domain.ErrMemoryLimit):
 			sendError(w, 409, "最多保存 50 条偏好，请先整理已有内容")
+		case e.Error()=="ACTION_INVALID":
+			sendError(w,422,"提案内容或时间已不可用，请让妮米重新准备后确认")
 		case strings.HasPrefix(e.Error(), "DOCUMENT_"):
 			messages := map[string]string{"DOCUMENT_AUTH_OR_NETWORK_FAILED": "飞书应用认证或网络请求失败，请检查凭据与应用发布状态", "DOCUMENT_PERMISSION_OR_CONTENT_FAILED": "无法读取此文档，请检查应用的文档读取权限并将文档授权给应用", "DOCUMENT_EMPTY": "此文档没有可导入的文本", "DOCUMENT_TOO_LARGE": "文档超过 12000 字节，请选用较短的文档或手动粘贴需要的段落"}
 			message := messages[e.Error()]
@@ -312,24 +323,13 @@ func (a *API) createRun(w http.ResponseWriter, r *http.Request) {
 	}
 	a.command(w, r, b, func(tx pgx.Tx) (any, int, error) {
 		ws := identity(r).Workspace
-		var selected *store.PersonalModel
-		var e error
-		if p.ModelID != "__fallback__" {
-			selected, e = a.Store.SelectedModel(r.Context(), tx, ws, p.ModelID)
-		}
+		g, e := a.selectedGateway(r.Context(), tx, ws, p.ModelID, "plan")
 		if e != nil {
 			return nil, 0, e
 		}
-		g := a.Gateway
-		if selected != nil {
-			g, e = model.Personal(*selected, ws, a.Vault)
-			if e != nil {
-				return nil, 0, e
-			}
-		}
 		out, status, e := a.Store.CreateRun(r.Context(), tx, ws, r.PathValue("id"), g.Mode(), g.Profile(), p.Expected, p.UseMemory)
-		if e == nil && selected != nil {
-			e = a.Store.BindRunModel(r.Context(), tx, ws, out.(domain.Run).ID, selected.ID)
+		if e == nil && g.ConfigID != "" {
+			e = a.Store.BindRunModel(r.Context(), tx, ws, out.(domain.Run).ID, g.ConfigID)
 		}
 		return out, status, e
 	})

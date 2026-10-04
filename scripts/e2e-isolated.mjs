@@ -2,8 +2,10 @@ import { spawn, execFileSync } from "node:child_process";
 import { randomUUID, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { mkdirSync } from "node:fs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const testBin = path.join(root, ".cache/bin/e2e");
 const database = process.env.TEST_DATABASE_URL;
 if (!database || new URL(database).pathname !== "/nemi_test")
   throw new Error("Configure the dedicated nemi_test database first.");
@@ -16,7 +18,11 @@ const env = {
   APP_INVITE_CODE: randomUUID(),
   APP_LISTEN: "127.0.0.1:18080",
   APP_ORIGIN: "http://localhost:3310",
-  MODEL_PROVIDER: "demo",
+  MODEL_PROVIDER: "qwen",
+  MODEL_NAME: "contract-fixture",
+  MODEL_INPUT_PRICE_MICRO_CNY: "2000000",
+  MODEL_OUTPUT_PRICE_MICRO_CNY: "4000000",
+  NEMI_E2E_WORKER: "1",
   API_ORIGIN: "http://127.0.0.1:18080",
   NEMI_BASE_URL: "http://localhost:3310",
   NEMI_WEB_DIST_DIR: ".next-e2e",
@@ -30,6 +36,7 @@ env.TEMPORAL_RUN_QUEUE = `nemi-e2e-${suffix}-runtime`;
 env.TEMPORAL_REMINDER_QUEUE = `nemi-e2e-${suffix}-reminders`;
 for (const key of Object.keys(env))
   if (key.startsWith("CONNECTOR_") || key === "MODEL_API_KEY") delete env[key];
+env.MODEL_API_KEY = "fixture-not-a-real-provider-key";
 const processes = [];
 function start(command, args, cwd = root) {
   const child = spawn(command, args, {
@@ -90,21 +97,25 @@ try {
       if (e.message === "An isolated test port is occupied.") throw e;
     }
   }
+  // All test services must share the current contracts; never use stale product
+  // binaries or overwrite the binaries of the user's running local services.
+  mkdirSync(testBin, { recursive: true });
+  for (const name of ["control-api", "notification-worker", "relay"])
+    execFileSync("go", ["build", "-o", path.join(testBin, name + (process.platform === "win32" ? ".exe" : "")), `./cmd/${name}`], { cwd: root, env, stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
   for (const name of [
     "control-api",
-    "runtime-worker",
     "notification-worker",
     "relay",
   ])
     start(
       path.join(
-        root,
-        ".cache",
-        "bin",
+        testBin,
         name + (process.platform === "win32" ? ".exe" : ""),
       ),
       [],
     );
+  execFileSync("go", ["test", "-c", "-o", path.join(testBin, "e2e-runtime.test" + (process.platform === "win32" ? ".exe" : "")), "./internal/runtime"], { cwd: root, env, stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
+  start(path.join(testBin, "e2e-runtime.test" + (process.platform === "win32" ? ".exe" : "")), ["-test.run=^TestE2EWorkerService$", "-test.timeout=15m"]);
   await ready("http://127.0.0.1:18080/healthz");
   start(
     process.execPath,

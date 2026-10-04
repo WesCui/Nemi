@@ -3,6 +3,7 @@ package domain
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -31,6 +32,42 @@ type Plan struct {
 	Summary string   `json:"summary"`
 	Items   []string `json:"items"`
 }
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+type AgentStep struct {
+	Position int    `json:"position"`
+	Kind     string `json:"kind"`
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	Error    string `json:"error"`
+}
+type AgentAction struct {
+	ID       string          `json:"id"`
+	RunID    string          `json:"run_id"`
+	Kind     string          `json:"kind"`
+	Payload  json.RawMessage `json:"payload"`
+	Status   string          `json:"status"`
+	ResultID string          `json:"result_id"`
+}
+
+// Agent proposals cannot grant their own approval or choose a workspace.
+type AgentMatter struct {
+	Title      string     `json:"title"`
+	Source     string     `json:"source"`
+	Category   string     `json:"category"`
+	Deadline   *time.Time `json:"deadline"`
+	ReminderAt *time.Time `json:"reminder_at"`
+	Quiet      bool       `json:"quiet"`
+	Repeat     string     `json:"repeat"`
+	Until      *time.Time `json:"repeat_until"`
+}
+
+func (p AgentMatter) Create() CreateMatter {
+	return CreateMatter{Title: p.Title, Source: p.Source, Category: p.Category, Deadline: p.Deadline, ReminderAt: p.ReminderAt, Quiet: p.Quiet, Repeat: p.Repeat, Until: p.Until, Timezone: "Asia/Shanghai", Confirmed: true}
+}
+
 type Matter struct {
 	OriginURL      string     `json:"origin_url,omitempty"`
 	OriginProvider string     `json:"origin_provider,omitempty"`

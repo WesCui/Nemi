@@ -37,8 +37,8 @@ func RunWorkflow(ctx workflow.Context, ref store.Ref) error {
 			}
 			continue
 		}
-		// There is one paid submission in v0.1. No infrastructure retry may duplicate it.
-		modelCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{StartToCloseTimeout: 135 * time.Second, HeartbeatTimeout: 15 * time.Second, RetryPolicy: &temporal.RetryPolicy{MaximumAttempts: 1}})
+		// Never replay paid work after an infrastructure interruption.
+		modelCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{StartToCloseTimeout: 10 * time.Minute, HeartbeatTimeout: 15 * time.Second, RetryPolicy: &temporal.RetryPolicy{MaximumAttempts: 1}})
 		if err = workflow.ExecuteActivity(modelCtx, "Generate", ref).Get(ctx, nil); err != nil {
 			return finishFailure(ctx, ref, "MODEL_INTERRUPTED_OR_FAILED")
 		}

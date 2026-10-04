@@ -37,7 +37,7 @@ func TestAuthenticatedConfirmationAndOrigin(t *testing.T) {
 	if e = s.Bootstrap(ctx, code); e != nil {
 		t.Fatal(e)
 	}
-	c := config.Config{Provider: "demo", Origin: "http://localhost:3000"}
+	c := config.Config{Provider: "", Origin: "http://localhost:3000"}
 	a := &API{Store: s, Hub: NewHub(s), Config: c, Gateway: model.New(c)}
 	handler := a.Handler()
 	request := func(method, path, body, origin string, cookie *http.Cookie) *httptest.ResponseRecorder {

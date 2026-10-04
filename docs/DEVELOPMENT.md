@@ -34,7 +34,7 @@ mkdir -p data
 
 Bash 验证命令：
 
-浏览器测试使用本机已安装的 Google Chrome。先启动原生 PG / Temporal 并准备 nemi_test，构建二进制后用隔离 runner；runner 自行启动测试 API / Web / Worker / Relay，使用随机独立队列与演示生成，结束后停止自己启动的进程。测试端口为 18080 / 3310，Web 缓存为 .next-e2e，不改动用户库。
+浏览器测试使用本机已安装的 Google Chrome。先启动原生 PG / Temporal 并准备 nemi_test，构建二进制后用隔离 runner；runner 自行启动测试 API / Web / Worker / Relay，使用随机独立队列和仅编译进 Go 测试二进制的供应商协议替身，结束后停止自己启动的进程。产品二进制不存在模拟生成器。测试端口为 18080 / 3310，Web 缓存为 .next-e2e，不改动用户库。
 
 ```bash
 source scripts/env.sh
@@ -126,11 +126,11 @@ npm run dev
 
 ## 3. 模型配置
 
-默认 `MODEL_PROVIDER=demo`：确定性演示清单，界面和导出均有提示，不发送网络请求，不计真实模型费用。
+默认不设置服务端模型，用户在首页配置自己的服务商、型号、API Key 和单价。无可用配置时，API 明确拒绝创建对话或模型运行；不会生成替代内容。
 
-要测试真实模型，配置 `qwen` 或 `deepseek`、实际获准的 `MODEL_NAME`、服务端 `MODEL_API_KEY`，并填写该型号当前价格。每百万 Token 的价格转换成 micro-CNY，例如 **仅作换算示例** ￥2 / 百万 Token = `2000000`，不是任何型号现价。密钥不放前端、不写日志、不进入 Temporal payload、不提交 Git。
+也可配置实际服务端模型作为可选默认：`qwen`、`deepseek`、`kimi`、`doubao` 或 `glm`、获准的 `MODEL_NAME`、服务端 `MODEL_API_KEY`，并填写该型号当前价格。每百万 Token 的价格转换成 micro-CNY，例如 **仅作换算示例** ￥2 / 百万 Token = `2000000`，不是任何型号现价。密钥不回显、不写日志、不进入 Temporal payload、不提交 Git。
 
-每次 Run 使用固定 provider / model Profile；运行中更改型号会使旧 Run 明确失败。v0.1 只做一次文本清单生成，没有图片、工具调用、搜索或供应商回退。实际区域、具体型号能力及输出质量须单独测试后才能宣传已支持。
+每次 Run 使用固定 provider / model / 提示合同 Profile；运行中更改服务端型号会使旧 Run 明确失败。v0.5 支持普通文本多轮对话和结构化清单；每轮一次模型调用，没有图片、通用工具循环、搜索或供应商回退。具体型号能力及输出质量须用实际账号核验。
 
 请求前预留费用：单 Run 上限 ￥1、个人北京时间自然日上限 ￥3、全局 5 / 每空间 2 个活跃模型工作。预算记录以整数 micro-CNY 存储。真实费用取供应商 usage；缺失 usage、网络响应丢失或 Activity 中断视为费用不确定，保留预留待后续核对。v0.1 不提供自动账单核对器。
 
@@ -181,3 +181,11 @@ npm run test:e2e
 从首页管理个人模型，从连接应用配置三个群机器人和飞书文档自建应用。默认加密主密钥位于被忽略的 data/credentials.key；API 和运行 Worker 从同一个仓库根目录启动。也可设置 APP_CREDENTIAL_KEY（32 字节，64 位 hex），所有进程必须一致。丢失主密钥无法解密数据库中的凭据，不得自动覆盖或重新生成已存在的无效文件；应在页面重新配置。主密钥与数据库分别备份并控制文件 ACL。Compose 已设置共享 credential-data 卷。
 
 保存配置不会发起外部请求。仅对你拥有权限的模型、群与 docx 文档使用页面中的检查 / 确认操作；不要把凭据粘贴到聊天中。真实回执与服务商账单需要实际账号核验。
+
+## v0.6 Agent 开发与联调
+
+主入口为真实模型对话与 Eino 工具执行。未配置个人 / 服务端 Key 时不运行模型；手动保存用户事项仍可使用。个人模型需要支持 OpenAI 兼容 function tool_calls，参数与输出按实际官方服务合同检查。模型使用量、应用凭据与用户数据不要写入测试输出。
+
+浏览器隔离 runner 会编译当前版本的 API、提醒、Relay 与测试专用 Agent Worker 到 .cache/bin/e2e，避免混用旧二进制。它只使用 nemi_test、随机工作空间和独立 Temporal 队列，测试结束关闭自己启动的服务。协议替身只在 Go 测试二进制内，真实产品 Worker 没有生成回退。可用 npm run test:e2e:isolated -- tests/e2e/chat.spec.ts 复验对话。
+
+事务迁移完成 schema v7 后，重启不重复执行 DDL，避免持久任务结算与迁移表锁互相阻塞。改动数据库合同必须提升 schema 版本。Agent 生命周期继续由 Temporal 管理，付费步骤不得通过 Activity / SDK 自动重试；数据库结算可以按同一 position 幂等重试。

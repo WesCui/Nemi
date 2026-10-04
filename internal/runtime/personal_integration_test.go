@@ -81,7 +81,7 @@ func TestPersonalModelRunAcrossRealTemporalAndDefaultChange(t *testing.T) {
 	var run domain.Run
 	json.Unmarshal(out.Body, &run)
 	cmd("change-default", func(tx pgx.Tx) (any, int, error) { return s.DefaultModel(ctx, tx, ws, "") })
-	fallback := model.New(config.Config{Provider: "demo"})
+	fallback := model.New(config.Config{Provider: ""})
 	var calls atomic.Int32
 	fallback.HTTP.Transport = personalTransport(func(r *http.Request) (*http.Response, error) {
 		calls.Add(1)

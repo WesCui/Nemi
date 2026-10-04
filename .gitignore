@@ -1,6 +1,5 @@
 node_modules/
-.next/
-.next-e2e/
+.next*/
 .cache/
 .env
 .env.local

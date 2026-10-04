@@ -45,6 +45,24 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if _, e = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(73310001)"); e != nil {
 		return e
 	}
+	// Completed schema versions are transactional. Avoid reacquiring broad DDL
+	// locks on every API/worker start while another worker settles live runs.
+	var exists bool
+	if e = tx.QueryRow(ctx, "SELECT to_regclass('schema_versions') IS NOT NULL").Scan(&exists); e != nil {
+		return e
+	}
+	if exists {
+		var version int
+		if e = tx.QueryRow(ctx, "SELECT COALESCE(max(version),0) FROM schema_versions").Scan(&version); e != nil {
+			return e
+		}
+		if version > 7 {
+			return errors.New("database schema is newer than this runtime")
+		}
+		if version == 7 {
+			return tx.Commit(ctx)
+		}
+	}
 	if _, e = tx.Exec(ctx, schema); e != nil {
 		return e
 	}
@@ -406,7 +424,7 @@ func (s *Store) Dashboard(ctx context.Context, i Identity, mode string) (Dashboa
 	if e != nil {
 		return d, e
 	}
-	rows, e = tx.Query(ctx, "SELECT id,matter_id,status,mode,result,error_code,created_at,used_memory_count FROM runs WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 200", i.Workspace)
+	rows, e = tx.Query(ctx, "SELECT id,matter_id,status,mode,result,error_code,created_at,used_memory_count FROM runs WHERE workspace_id=$1 AND kind='plan' ORDER BY created_at DESC LIMIT 200", i.Workspace)
 	if e != nil {
 		return d, e
 	}

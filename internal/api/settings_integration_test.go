@@ -50,7 +50,7 @@ func TestPersonalCredentialAPIPrivacyAndConfirmedIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	v, _ := vault.New(bytes.Repeat([]byte{23}, 32))
-	c := config.Config{Provider: "demo", Origin: "http://localhost:3000"}
+	c := config.Config{Provider: "", Origin: "http://localhost:3000"}
 	sender := connectors.New(nil)
 	sends := 0
 	sender.Client.Transport = botTransport(func(r *http.Request) (*http.Response, error) {

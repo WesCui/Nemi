@@ -43,3 +43,7 @@ Nemi 借鉴显式范围和可管理的记忆接口。v0.2 的偏好只有用户�
 ## v0.4 飞书实际复用
 
 直接依赖飞书官方 larksuite/oapi-sdk-go v3.12.0（MIT），复用自建应用授权与 docx raw_content 服务。仅初始化 auth / docx 服务，避免编译无关业务模块；Nemi 负责凭据加密、出站约束、日志脱敏、响应大小、权限错误、确认导入与事务去重。未接入 SDK 的自动渠道发送、隐式重发或 WebSocket 事件。完整许可证存于 licenses/larksuite-oapi-sdk-go-MIT.txt 并随镜像交付。
+
+## v0.6 Eino 实际复用
+
+直接依赖 [cloudwego/eino](https://github.com/cloudwego/eino) v0.9.21（Apache-2.0），复用 ReAct Agent、工具 schema 与顺序工具编排。Nemi 提供固定供应商适配器、范围约束、PG 步骤 claim、逐调用预算结算、真实数据工具与操作提案审批；Temporal 继续拥有持久运行生命周期，不另设持久执行引擎。没有复制其业务源码，未启用 Eino 自动付费重试或无限循环。完整许可证为 [Eino Apache-2.0](./licenses/cloudwego-eino-Apache-2.0.txt)，镜像随现有 docs/licenses 目录交付。

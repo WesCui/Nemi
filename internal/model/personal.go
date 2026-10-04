@@ -22,16 +22,26 @@ func Personal(m store.PersonalModel, w string, v *vault.Vault) (*Gateway, error)
 	return g, nil
 }
 func Resolve(ctx context.Context, s *store.Store, v *vault.Vault, fallback *Gateway, r store.Ref) (*Gateway, error) {
+	kind, err := s.RunKind(ctx, r)
+	if err != nil {
+		return nil, err
+	}
 	m, err := s.RunModel(ctx, r)
 	if err != nil {
 		return nil, err
 	}
 	if m == nil {
-		return fallback, nil
+		if !fallback.Ready() {
+			return nil, errors.New("MODEL_NOT_CONFIGURED")
+		}
+		return fallback.ForKind(kind), nil
 	}
 	g, err := Personal(*m, r.Workspace, v)
 	if err == nil {
 		g.HTTP = fallback.HTTP
 	}
-	return g, err
+	if err != nil {
+		return nil, err
+	}
+	return g.ForKind(kind), nil
 }

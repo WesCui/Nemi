@@ -12,7 +12,7 @@ x-app: &app
     APP_CREDENTIAL_KEY_FILE: /app/data/credentials.key
     DATABASE_URL: postgres://nemi:nemi_dev_only@postgres:5432/nemi?sslmode=disable
     TEMPORAL_ADDRESS: temporal:7233
-    MODEL_PROVIDER: ${MODEL_PROVIDER:-demo}
+    MODEL_PROVIDER: ${MODEL_PROVIDER:-}
     MODEL_NAME: ${MODEL_NAME:-}
     MODEL_API_KEY: ${MODEL_API_KEY:-}
     MODEL_INPUT_PRICE_MICRO_CNY: ${MODEL_INPUT_PRICE_MICRO_CNY:-0}

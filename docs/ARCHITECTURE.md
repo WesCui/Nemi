@@ -1,6 +1,6 @@
 # 国内生活助理 Agent Cloud Runtime 技术架构
 
-版本：v0.4 · 日期：2026-10-04 · 状态：目标架构；代码已推进至 v0.4，实际周期 timer 链、偏好上下文、应用 Adapter 和验证见 [实施状态](./IMPLEMENTATION.md)
+版本：v0.5 · 日期：2026-10-04 · 状态：目标架构；代码已推进至 v0.5，实际周期 timer 链、偏好上下文、应用 Adapter 和验证见 [实施状态](./IMPLEMENTATION.md)
 
 配套见 [PRD](./PRD.md)、[dots 功能对标调研](./DOTS_BENCHMARK.md) 和 [使用场景与办公接入调研](./SCENARIO_RESEARCH.md)。原 FastAPI 方案保留于 [v0.1 存档](./archive/v0.1/ARCHITECTURE.md)。本文的接口、表和流程是本项目设计合同，不是 OpenAI dots 内部实现或已经运行的代码。
 
@@ -702,8 +702,27 @@ Capability Profile 发布前将 UNKNOWN 明确显示不可用。额外模块建�
 企微会话全量存档、飞书公司全库扫描、全部私人 App 订单、企业管理和家庭共享不在本轮原型默认范围。所有外部测试使用测试身份与明确允许的数据；公开文档调研不是实际接入或消息发送授权。
 
 
-## v0.4 个人配置与平台接入实现合同
+## v0.5 个人配置与平台接入实现合同
 
 首页模型设置、逐任务选择与账户凭据以空间为范围，配置不进入 Temporal 历史。personal_models 保存不可变模型、价格和密文；workspace_model_settings 保存默认 ID；runs.model_config_id 固定任务账户。app_connections 保存应用密文、revision 和最近验证时间。撤销在 CALLING 提交前校验，已发起请求不作可撤回承诺。
 
 真实应用合同为：三家群机器人逐次确认发送；飞书自建应用显式认证、指定 docx 只读导入，并保存来源链接。它们不表示已经有用户 OAuth、聊天、日历、个人订单或自动工具循环。[实际验收](./IMPLEMENTATION.md)与[对标范围](./PARITY.md)单独记录。
+
+## v0.5 首页对话执行
+
+POST /api/v1/chat/messages 经登录、来源和幂等校验后选取个人模型，检查真实配置可用，锁定对话并将用户输入、已完成上下文和模型配置保存为不可变运行。数据库事务同时写入 chat_turns 和 Outbox；Temporal 复用预算 admission、CALLING claim 与单次 LLM 提交。普通文本回复结算到运行，并通过 GET /conversations/{id} 恢复，SSE 通知页面刷新。对话不创建事项；事项清单使用独立 plan-v2 提示合同，对话使用 chat-v1。无 Key 返回 412，后台发现旧任务无模型时明确失败，不生成模拟内容。
+
+schema v6 放宽 runs.matter_id 为可空，仅对话运行使用 conversation_id。Dashboard 的清单运行列表只查询 kind=plan，避免对话混入事项。每段对话至多一个活跃运行、每空间最多十个待处理对话、100 段对话、每段200轮；上下文最多十个已完成整轮且 JSON 不超过12000字节。失败轮次不进入后续模型上下文。
+
+
+## v0.6 通用 Agent 工具执行（当前实现）
+
+Go Worker 在已有 Temporal Generate Activity 内调用 CloudWeGo Eino v0.9.21 ReAct 编排。自有 ToolCallingChatModel 适配器只允许固定供应商端点，通过 Gateway.Request 发送普通文本 / tool_calls，不转发 reasoning、ResponseMeta 或 Extra。最多 6 次模型请求、12 次顺序工具执行、10 分钟运行；不启用付费请求自动重试。每轮发送的工具定义、上下文与结果 JSON 上限 48000 字节，输出最多 2048 Token。
+
+工具注册表包含 get_current_time、list_matters、get_matter、list_memories、list_connections、read_feishu_document、propose_matter。所有 scope 来自已认证运行的 Ref；入参使用严格 JSON schema / decoder，不允许模型提供空间或自动确认。飞书只读取用户明确提供且授权的 docx 链接，通过官方 SDK，固定出站到 open.feishu.cn；文档内容作为不可信数据回传模型，无 arbitrary URL fetch、Shell 或通用发送工具。
+
+schema v7 的 agent_steps 固定运行内 position。HTTP 前提交 MODEL / CALLING，检查个人模型撤销、运行状态和预算；每次响应后结算已知 usage 与微元费用。Agent 的初次 admission 预留约两次调用，后续按序列化请求字节上界估计追加金额，沿用同一 admission 锁。daily = 已结算 + 剩余预留；未知步骤保留预留，Failure 不覆盖既有费用。Activity 只重试 DB 结算，基础设施中断不会重放模型请求。日预算按获准运行的北京日归属。
+
+propose_matter 只持久保存不可变 agent_actions / PENDING。Web 展示标题、资料、分类、截止、名义提醒、重复截止与免打扰规则。POST /agent/actions/{id}/approve 经登录、来源、幂等命令、空间范围、行锁与当前日期校验，同事务创建事项、提醒 Outbox，并设置 APPROVED / result_id。重复确认读取既有结果；dismiss 设置 DECLINED，不允许其后执行。下一轮从数据库注入本段已有提案状态，旧回复不能作为已执行证据。
+
+对话提示合同升级为 agent-v1，清单仍是 plan-v2。本节取代 v0.5 的单次 chat-v1 合同；对话主入口是通用 Agent，事项与提醒是其中的工具。当前不包含云端电脑、浏览器、搜索、文件处理、自动长期规划或全平台 OAuth。

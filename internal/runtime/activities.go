@@ -5,6 +5,7 @@ import (
 	"errors"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
+	"nemi/internal/agent"
 	"nemi/internal/model"
 	"nemi/internal/store"
 	"nemi/internal/vault"
@@ -70,15 +71,23 @@ func (a *Activities) Generate(ctx context.Context, r store.Ref) error {
 			}
 		}
 	}()
-	out, e := g.Generate(ctx, in.Title, in.Source)
+	var out model.Output
+	if g.Kind == "chat" {
+		out, e = agent.Generate(ctx, a.Store, a.Vault, g, r, in.Source)
+	} else {
+		out, e = g.Generate(ctx, in.Title, in.Source)
+	}
 	cost := g.Cost(out.InputTokens, out.OutputTokens)
+	if g.Kind == "chat" {
+		cost = out.Charged
+	}
 	if e != nil {
 		if dbErr := a.Store.FailRun(ctx, r, e.Error(), out.InputTokens, out.OutputTokens, cost); dbErr != nil {
 			return dbErr
 		}
 		return nil
 	}
-	if cost > in.Reservation && g.Mode() != "demo" {
+	if g.Kind != "chat" && cost > in.Reservation {
 		if e = a.Store.FailRun(ctx, r, "USAGE_EXCEEDS_RESERVATION", out.InputTokens, out.OutputTokens, cost); e != nil {
 			return e
 		}

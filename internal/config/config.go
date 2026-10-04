@@ -23,7 +23,7 @@ func env(k, d string) string {
 	return d
 }
 func Load() (Config, error) {
-	c := Config{DB: os.Getenv("DATABASE_URL"), Temporal: env("TEMPORAL_ADDRESS", "localhost:7233"), Listen: env("APP_LISTEN", "127.0.0.1:8080"), Origin: env("APP_ORIGIN", "http://localhost:3000"), Invite: os.Getenv("APP_INVITE_CODE"), Provider: env("MODEL_PROVIDER", "demo"), Model: os.Getenv("MODEL_NAME"), Key: os.Getenv("MODEL_API_KEY")}
+	c := Config{DB: os.Getenv("DATABASE_URL"), Temporal: env("TEMPORAL_ADDRESS", "localhost:7233"), Listen: env("APP_LISTEN", "127.0.0.1:8080"), Origin: env("APP_ORIGIN", "http://localhost:3000"), Invite: os.Getenv("APP_INVITE_CODE"), Provider: os.Getenv("MODEL_PROVIDER"), Model: os.Getenv("MODEL_NAME"), Key: os.Getenv("MODEL_API_KEY")}
 	if env("APP_ENV", "development") != "development" {
 		return c, fmt.Errorf("this first slice supports private development only; production identity is not implemented")
 	}
@@ -37,10 +37,15 @@ func Load() (Config, error) {
 	if c.DB == "" || len(c.Invite) < 16 {
 		return c, fmt.Errorf("DATABASE_URL and an APP_INVITE_CODE of at least 16 characters are required")
 	}
-	if c.Provider != "demo" && c.Provider != "qwen" && c.Provider != "deepseek" && c.Provider != "kimi" && c.Provider != "doubao" && c.Provider != "glm" {
+	// Without a server credential, users configure their own model in the UI.
+	if c.Key == "" {
+		c.Provider = ""
+		c.Model = ""
+	}
+	if c.Provider != "" && c.Provider != "qwen" && c.Provider != "deepseek" && c.Provider != "kimi" && c.Provider != "doubao" && c.Provider != "glm" {
 		return c, fmt.Errorf("unsupported model provider")
 	}
-	if c.Provider != "demo" {
+	if c.Provider != "" {
 		var e error
 		c.InputPrice, e = strconv.ParseInt(os.Getenv("MODEL_INPUT_PRICE_MICRO_CNY"), 10, 64)
 		if e != nil || c.InputPrice <= 0 || c.InputPrice > 1000000000 {

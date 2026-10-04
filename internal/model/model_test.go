@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"nemi/internal/config"
 	"net/http"
@@ -57,5 +58,43 @@ func TestCostRoundsUpAndReservesOutput(t *testing.T) {
 	}
 	if g.Reserve("材料", "报名要求") < 8192 {
 		t.Fatal("output not reserved")
+	}
+}
+func TestUnconfiguredGatewayNeverGeneratesReplacementContent(t *testing.T) {
+	g := New(config.Config{})
+	g.HTTP.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		t.Fatal("unconfigured model made a network call")
+		return nil, nil
+	})
+	if g.Mode() != "unconfigured" {
+		t.Fatal("invalid missing-key state")
+	}
+	for _, kind := range []string{"plan", "chat"} {
+		out, err := g.ForKind(kind).Generate(context.Background(), "事项", `[{"role":"user","content":"你好"}]`)
+		if err == nil || err.Error() != "MODEL_NOT_CONFIGURED" || out.Plan.Summary != "" || len(out.Plan.Items) > 0 {
+			t.Fatal("generated content without a model")
+		}
+	}
+}
+func TestChatSendsActualConversationAndDecodesPlainReply(t *testing.T) {
+	g := New(config.Config{Provider: "deepseek", Model: "fixture", Key: "fixture-key"}).ForKind("chat")
+	g.HTTP.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var body struct {
+			Messages []struct{ Role, Content string }
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Messages) != 4 || body.Messages[1].Content != "我叫小王" || body.Messages[2].Content != "你好，小王" || body.Messages[3].Content != "我叫什么？" || body.Messages[3].Role != "user" {
+			t.Fatal("lost chat context")
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"choices":[{"finish_reason":"stop","message":{"content":"你叫小王。"}}],"usage":{"prompt_tokens":50,"completion_tokens":30}}`))}, nil
+	})
+	out, err := g.Generate(context.Background(), "", `[{"role":"user","content":"我叫小王"},{"role":"assistant","content":"你好，小王"},{"role":"user","content":"我叫什么？"}]`)
+	if err != nil || out.Plan.Summary != "你叫小王。" || out.InputTokens != 50 {
+		t.Fatal("chat reply rejected", err)
+	}
+	if g.Profile() == g.ForKind("plan").Profile() {
+		t.Fatal("chat and checklist share a prompt profile")
 	}
 }

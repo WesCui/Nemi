@@ -8,17 +8,19 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
+	"io"
 	"nemi/internal/config"
 	"nemi/internal/domain"
 	"nemi/internal/model"
 	"nemi/internal/store"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
 	"time"
 )
 
-// This test uses a real Temporal server and a separate test database. No mocks.
+// Real Temporal, PG and worker replacement; the external model is a protocol fixture.
 func TestLiveWorkerReplacementAndOutbox(t *testing.T) {
 	addr := os.Getenv("TEST_TEMPORAL_ADDRESS")
 	url := os.Getenv("TEST_DATABASE_URL")
@@ -60,7 +62,11 @@ func TestLiveWorkerReplacementAndOutbox(t *testing.T) {
 	var rid string
 	s.Pool.QueryRow(ctx, "SELECT id FROM reminders WHERE workspace_id=$1 AND matter_id=$2", wid, m.ID).Scan(&rid)
 	queue := "nemi-live-test-" + domain.ID()
-	a := &Activities{Store: s, Gateway: model.New(config.Config{Provider: "demo"})}
+	g := model.New(config.Config{Provider: "qwen", Model: "fixture", Key: "fixture-only", InputPrice: 2000000, OutputPrice: 4000000})
+	g.HTTP.Transport = personalTransport(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"choices":[{"finish_reason":"stop","message":{"content":"{\"summary\":\"协议验收\",\"items\":[\"核对时间\",\"准备资料\",\"记录结果\"]}"}}],"usage":{"prompt_tokens":50,"completion_tokens":30}}`))}, nil
+	})
+	a := &Activities{Store: s, Gateway: g}
 	newWorker := func() worker.Worker {
 		w := worker.New(c, queue, worker.Options{})
 		w.RegisterWorkflow(ReminderWorkflow)
@@ -150,7 +156,7 @@ func TestLiveWorkerReplacementAndOutbox(t *testing.T) {
 	}
 	// Run outbox dispatch twice. Workflow IDs deduplicate the engine submission.
 	rr, e := s.Command(ctx, wid, domain.ID(), "live-run", nil, func(tx pgx.Tx) (any, int, error) {
-		return s.CreateRun(ctx, tx, wid, m.ID, "demo", a.Gateway.Profile(), 1)
+		return s.CreateRun(ctx, tx, wid, m.ID, g.Mode(), g.Profile(), 1)
 	})
 	if e != nil {
 		t.Fatal(e)

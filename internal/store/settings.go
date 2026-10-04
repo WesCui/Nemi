@@ -63,6 +63,9 @@ func (s *Store) AddModel(ctx context.Context, tx pgx.Tx, w string, m PersonalMod
 	}
 	_, err := tx.Exec(ctx, "INSERT INTO personal_models(workspace_id,id,label,provider,model,input_price,output_price,credential) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", w, m.ID, m.Label, m.Provider, m.Model, m.InputPrice, m.OutputPrice, m.Credential)
 	if err == nil {
+		_, err = tx.Exec(ctx, "INSERT INTO workspace_model_settings(workspace_id,model_id) VALUES($1,$2) ON CONFLICT(workspace_id) DO UPDATE SET model_id=EXCLUDED.model_id WHERE workspace_model_settings.model_id=''", w, m.ID)
+	}
+	if err == nil {
 		err = event(ctx, tx, w, "model.saved", m.ID)
 	}
 	return m, 201, err

@@ -18,33 +18,32 @@ export type ModelOverview = {
   models: PersonalModel[];
   providers: Provider[];
   default_id: string;
-  fallback_mode: string;
+  server_available: boolean;
 };
 export function ModelChoice({
   data,
   value,
   onChange,
   disabled = false,
+  label = "整理使用的模型",
 }: {
   data: ModelOverview;
   value: string;
   onChange: (id: string) => void;
   disabled?: boolean;
+  label?: string;
 }) {
   return (
     <label>
-      整理使用的模型
+      {label}
       <select
-        aria-label="整理使用的模型"
+        aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
       >
-        <option value="">
-          {data.fallback_mode === "demo"
-            ? "演示生成 · 不调用模型"
-            : "服务端默认模型"}
-        </option>
+        <option value="" disabled>请选择模型</option>
+        {data.server_available && <option value="__server__">服务端模型</option>}
         {data.models.map((m) => (
           <option key={m.id} value={m.id}>
             {m.label} · {m.model}
@@ -58,6 +57,7 @@ export function ModelChoice({
   );
 }
 const errors: Record<string, string> = {
+  MODEL_NOT_CONFIGURED: "请先配置模型和 API Key。",
   MODEL_HTTP_401: "密钥未通过认证，请检查后重新配置。",
   MODEL_HTTP_403: "当前密钥没有权限使用此模型。",
   MODEL_HTTP_404: "服务商未找到此模型，请核对模型 ID。",
@@ -66,9 +66,18 @@ const errors: Record<string, string> = {
     "调用结果无法确认，请先核对服务商账单。系统不会自动重试。",
   MODEL_INVALID_PLAN: "模型返回内容未符合清单格式，请选用支持文本对话的模型。",
   MODEL_CONFIG_REVOKED: "配置已移除，此次调用已停止。",
+  MODEL_CONFIG_CHANGED: "执行配置已更新，本次任务已停止，请重新发送。",
   RUN_BUDGET_EXCEEDED: "预估费用超过单次 1 元，请核对单价或选择其他模型。",
   DAILY_BUDGET_EXCEEDED: "当天费用预算已达到 3 元。",
+  MODEL_INVALID_TOOL_CALL: "模型返回了无效的工具调用，请选择支持工具调用的模型。",
+  MODEL_INVALID_USAGE: "模型没有返回有效的用量，费用结果待核对，此请求不会自动重试。",
+  MODEL_INVALID_RESPONSE: "模型返回的内容不完整，请核对所选模型是否支持工具调用。",
+  AGENT_STEP_LIMIT_OR_INTERRUPTED: "本次处理已停止。可以缩小任务后继续，已生成的提案仍可确认。",
+  AGENT_CONTEXT_TOO_LARGE: "本次任务的资料过长，请缩小范围或开始新对话。",
+  AGENT_LEDGER_UNAVAILABLE: "执行记录暂时无法保存。请稍后查看结果，此请求不会自动重试。",
+  AGENT_NO_LONGER_ACTIVE: "本次任务已停止，已完成的操作可在执行记录中查看。",
 };
+export function modelFailure(code: string) { return errors[code] || "模型未能完成回复，请检查 Key、型号及服务商额度。结果不确定的请求不会自动重发。"; }
 export function ModelSettings({
   data,
   runs,
@@ -129,7 +138,7 @@ export function ModelSettings({
   return (
     <section className="model-settings">
       <p className="modal-intro">
-        用自己的模型，安排自己的日常。保存后选择默认模型，或在每次整理时单独选择。
+        填入自己的 API Key 后即可对话。首个模型会设为默认，也可以在每次发送或整理时单独选择。
       </p>
       <div className="model-default">
         <label>
@@ -145,9 +154,7 @@ export function ModelSettings({
             }
           >
             <option value="">
-              {data.fallback_mode === "demo"
-                ? "演示生成 · 不调用真实模型"
-                : "服务端默认模型"}
+              {data.server_available ? "服务端模型" : "请选择默认模型"}
             </option>
             {data.models.map((m) => (
               <option value={m.id} key={m.id}>

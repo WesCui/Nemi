@@ -55,7 +55,7 @@ func TestConnectorConfirmationAndCalendarAPI(t *testing.T) {
 		t.Fatal(e)
 	}
 	cookie := &http.Cookie{Name: "nemi_session", Value: token}
-	c := config.Config{Provider: "demo", Origin: "http://localhost:3000"}
+	c := config.Config{Provider: "", Origin: "http://localhost:3000"}
 	sender := connectors.New(map[string]connectors.Bot{"feishu": {URL: "https://open.feishu.cn/open-apis/bot/v2/hook/test-credential", Label: "协议测试群"}})
 	var calls atomic.Int32
 	sender.Client.Transport = botTransport(func(*http.Request) (*http.Response, error) {

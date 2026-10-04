@@ -193,7 +193,7 @@ func TestStalePlanCannotOverwriteUserChecklist(t *testing.T) {
 	s, w := fixture(t)
 	ctx := context.Background()
 	m := create(t, s, w, nil)
-	rr, e := s.Command(ctx, w, domain.ID(), "run", nil, func(tx pgx.Tx) (any, int, error) { return s.CreateRun(ctx, tx, w, m.ID, "demo", "demo:", 1) })
+	rr, e := s.Command(ctx, w, domain.ID(), "run", nil, func(tx pgx.Tx) (any, int, error) { return s.CreateRun(ctx, tx, w, m.ID, "fixture", "fixture:", 1) })
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -216,7 +216,7 @@ func TestStalePlanCannotOverwriteUserChecklist(t *testing.T) {
 	if e = s.FinishRun(ctx, ref, domain.Plan{Summary: "旧版本结果", Items: []string{"旧任务"}}, 0, 0, 0); e != nil {
 		t.Fatal(e)
 	}
-	d, e := s.Dashboard(ctx, Identity{Workspace: w}, "demo")
+	d, e := s.Dashboard(ctx, Identity{Workspace: w}, "fixture")
 	if e != nil {
 		t.Fatal(e)
 	}

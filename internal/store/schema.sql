@@ -80,3 +80,29 @@ CREATE TABLE IF NOT EXISTS app_connections (
 INSERT INTO schema_versions(version) VALUES(5) ON CONFLICT DO NOTHING;
 ALTER TABLE matters ADD COLUMN IF NOT EXISTS origin_url text NOT NULL DEFAULT '';
 ALTER TABLE matters ADD COLUMN IF NOT EXISTS origin_provider text NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS conversations (
+ workspace_id text NOT NULL REFERENCES workspaces(id), id text NOT NULL, title text NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,id)
+);
+ALTER TABLE runs ALTER COLUMN matter_id DROP NOT NULL;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'plan' CHECK(kind IN ('plan','chat'));
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS conversation_id text;
+CREATE UNIQUE INDEX IF NOT EXISTS active_conversation_run ON runs(workspace_id,conversation_id) WHERE kind='chat' AND status IN ('QUEUED','RUNNING');
+CREATE TABLE IF NOT EXISTS chat_turns (
+ workspace_id text NOT NULL, conversation_id text NOT NULL, run_id text NOT NULL, position int NOT NULL CHECK(position>0), user_text text NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,conversation_id,position), UNIQUE(workspace_id,run_id),
+ FOREIGN KEY(workspace_id,conversation_id) REFERENCES conversations(workspace_id,id), FOREIGN KEY(workspace_id,run_id) REFERENCES runs(workspace_id,id)
+);
+INSERT INTO schema_versions(version) VALUES(6) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS agent_steps (
+ workspace_id text NOT NULL, run_id text NOT NULL, position int NOT NULL, kind text NOT NULL CHECK(kind IN ('MODEL','TOOL')),
+ name text NOT NULL, status text NOT NULL CHECK(status IN ('CALLING','SUCCEEDED','FAILED','UNKNOWN')), error_code text NOT NULL DEFAULT '',
+ input_tokens bigint NOT NULL DEFAULT 0, output_tokens bigint NOT NULL DEFAULT 0, charged_micro_cny bigint NOT NULL DEFAULT 0,
+ created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,run_id,position), FOREIGN KEY(workspace_id,run_id) REFERENCES runs(workspace_id,id)
+);
+CREATE TABLE IF NOT EXISTS agent_actions (
+ workspace_id text NOT NULL, id text NOT NULL, run_id text NOT NULL, kind text NOT NULL, payload jsonb NOT NULL,
+ status text NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING','APPROVED','DECLINED')), result_id text NOT NULL DEFAULT '',
+ created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,id), FOREIGN KEY(workspace_id,run_id) REFERENCES runs(workspace_id,id)
+);
+INSERT INTO schema_versions(version) VALUES(7) ON CONFLICT DO NOTHING;

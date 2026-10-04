@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowDownToLine,
   ArrowRight,
-  ArrowUp,
   Activity,
   Bell,
   Brain,
@@ -20,7 +19,6 @@ import {
   LoaderCircle,
   LogOut,
   Menu,
-  MessageCircle,
   Plus,
   Sun,
   X,
@@ -49,6 +47,7 @@ import {
 
 import { ConnectionsPanel, MatterApplications } from "@/components/connections";
 import { ModelChoice, ModelOverview, ModelSettings } from "@/components/models";
+import { Chat } from "@/components/chat";
 
 type View =
   | "today"
@@ -96,6 +95,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [view, setView] = useState<View>("today");
   const [draft, setDraft] = useState("");
+  const [chatReset, setChatReset] = useState(0);
   const [create, setCreate] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [mobileNav, setMobileNav] = useState(false);
@@ -186,7 +186,7 @@ export default function Home() {
   );
   const currentMatter = data.matters.find((m) => m.id === selected);
   const nav = [
-    { id: "today", title: "今天", icon: Sun },
+    { id: "today", title: "助手", icon: Sun },
     { id: "matters", title: "我的事项", icon: ListTodo },
     { id: "reminders", title: "提醒", icon: Bell },
     { id: "activity", title: "工作动态", icon: Activity },
@@ -212,14 +212,17 @@ export default function Home() {
         <Brand />
         <button
           className="new-button"
+          aria-label="开始新对话"
           onClick={() => {
-            setCreate(true);
+            setView("today");
+            setChatReset((value) => value + 1);
             setMobileNav(false);
           }}
         >
           <Plus size={18} />
-          记一件事
+          新对话
         </button>
+        <button className="text-button new-matter-shortcut" onClick={() => { setCreate(true); setMobileNav(false); }}><ListTodo size={15} />记一件事</button>
         <nav aria-label="主导航">
           {nav.map((n) => (
             <button
@@ -240,7 +243,7 @@ export default function Home() {
         </nav>
         <div className="sidebar-note">
           <span>PERSONAL SPACE</span>
-          <p>事项 · 时间 · 应用</p>
+          <p>对话 · 任务 · 应用</p>
         </div>
         <div className="profile">
           <span className="avatar">你</span>
@@ -286,8 +289,7 @@ export default function Home() {
               aria-label="模型配置"
             >
               <i />
-              {models.models.find((m) => m.id === models.default_id)?.label ||
-                (data.model_mode === "demo" ? "配置我的模型" : "模型配置")}
+              {models.models.find((m) => m.id === models.default_id)?.label || "配置我的模型"}
             </button>
             <button
               className="icon-button notification-button"
@@ -319,8 +321,8 @@ export default function Home() {
                   <div className="eyebrow">
                     <Today />
                   </div>
-                  <h1>今天的安排</h1>
-                  <p>记录计划，留意时间，推进手头的事。</p>
+                  <h1>有什么想交给妮米？</h1>
+                  <p>聊问题、整理资料，或交给我一个目标。</p>
                 </div>
                 <div className="hero-ledger">
                   <div>
@@ -333,38 +335,7 @@ export default function Home() {
                   </div>
                 </div>
               </section>
-              <form
-                className="composer"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setCreate(true);
-                }}
-              >
-                <label htmlFor="composer" className="sr-only">
-                  告诉妮米你想做的事
-                </label>
-                <textarea
-                  id="composer"
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  maxLength={6000}
-                  placeholder="记下接下来要做的事…"
-                  rows={3}
-                />
-                <div className="composer-footer">
-                  <span>
-                    <MessageCircle size={15} />
-                    内容与时间，保存前由你确认
-                  </span>
-                  <button
-                    type="submit"
-                    className="send-button"
-                    aria-label="创建事项"
-                  >
-                    <ArrowUp size={20} />
-                  </button>
-                </div>
-              </form>
+              <Chat models={models} draft={draft} onDraft={setDraft} onConfigure={() => setModelSettings(true)} sync={data.activity[0]?.sequence || 0} reset={chatReset} />
               <div className="suggestions">
                 <button
                   onClick={() =>
@@ -621,11 +592,7 @@ export default function Home() {
           )}
           <footer className="page-footer">
             <span>Nemi · 妮米</span>
-            <span>
-              {data.model_mode === "demo"
-                ? "本地演示生成 · 未调用真实模型"
-                : "AI 生成内容，请核对关键资料"}
-            </span>
+            <span>AI 生成内容，请核对关键资料</span>
           </footer>
         </div>
       </main>
@@ -637,15 +604,15 @@ export default function Home() {
       {create && (
         <CreateDialog
           draft={draft}
-          demo={data.model_mode === "demo"}
           memoryCount={data.memories.length}
           models={models}
           onClose={() => setCreate(false)}
-          onSaved={async (id) => {
+          onSaved={async (id, warning) => {
             setCreate(false);
             setDraft("");
             await refresh();
             setSelected(id);
+            if (warning) setError(warning);
           }}
         />
       )}
@@ -952,21 +919,19 @@ function Modal({
 }
 function CreateDialog({
   draft,
-  demo,
   memoryCount,
   models,
   onClose,
   onSaved,
 }: {
   draft: string;
-  demo: boolean;
   memoryCount: number;
   models: ModelOverview;
   onClose: () => void;
-  onSaved: (id: string) => Promise<void>;
+  onSaved: (id: string, warning?: string) => Promise<void>;
 }) {
   const [title, setTitle] = useState(draft.slice(0, 60));
-  const [modelID, setModelID] = useState(models.default_id);
+  const [modelID, setModelID] = useState(models.default_id || (models.server_available ? "__server__" : ""));
   const [source, setSource] = useState(draft);
   const [category, setCategory] = useState("life");
   const [deadline, setDeadline] = useState("");
@@ -986,6 +951,7 @@ function CreateDialog({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!confirmed) return;
+    if (generate && !modelID) { setError("请先配置模型与 API Key，或取消自动整理后仅保存事项。"); return; }
     setBusy(true);
     setError("");
     try {
@@ -1011,6 +977,7 @@ function CreateDialog({
         "POST",
         command.current.key,
       );
+      let warning = "";
       if (generate) {
         try {
           await api(
@@ -1018,16 +985,16 @@ function CreateDialog({
             {
               expected_revision: m.revision,
               use_memory: useMemory,
-              model_id: modelID || "__fallback__",
+              model_id: modelID,
             },
             "POST",
             `${command.current.key}-plan`,
           );
-        } catch {
-          /* The saved matter is still shown; the user can retry from its detail. */
+        } catch (e) {
+          warning = `事项已保存，模型整理未启动：${(e as Error).message}`;
         }
       }
-      await onSaved(m.id);
+      await onSaved(m.id, warning);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1146,9 +1113,6 @@ function CreateDialog({
             onChange={(e) => setGenerate(e.target.checked)}
           />
           保存后整理一份行动清单
-          {models.fallback_mode === "demo" && !modelID && (
-            <span className="tiny-tag">演示生成</span>
-          )}
         </label>
         {generate && (
           <ModelChoice
@@ -1230,7 +1194,7 @@ function MatterDialog({
   const [editingReminder, setEditingReminder] = useState(false);
   const [editingSource, setEditingSource] = useState(false);
   const [useMemory, setUseMemory] = useState(true);
-  const [modelID, setModelID] = useState(models.default_id);
+  const [modelID, setModelID] = useState(models.default_id || (models.server_available ? "__server__" : ""));
   const [optimisticItems, setOptimisticItems] = useState<Item[] | null>(null);
   const shownItems = optimisticItems || m.items;
   async function mutate(body: unknown) {
@@ -1264,7 +1228,7 @@ function MatterDialog({
       await api(`/matters/${m.id}/runs`, {
         expected_revision: m.revision,
         use_memory: useMemory,
-        model_id: modelID || "__fallback__",
+        model_id: modelID,
       });
       await refresh();
     } catch (err) {
@@ -1274,7 +1238,7 @@ function MatterDialog({
     }
   }
   function download() {
-    const text = `# ${m.title}\n\n${m.items.map((i) => `- [${i.done ? "x" : " "}] ${i.text}`).join("\n")}\n\n${run?.result?.summary || ""}\n\n来源：用户提供资料${run?.used_memory_count ? "及已确认偏好" : ""}。${run?.mode === "demo" ? "本地演示生成。" : "AI 生成。"}未进行外部核验。\n`;
+    const text = `# ${m.title}\n\n${m.items.map((i) => `- [${i.done ? "x" : " "}] ${i.text}`).join("\n")}\n\n${run?.result?.summary || ""}\n\n来源：用户提供资料${run?.used_memory_count ? "及已确认偏好" : ""}。${run?.result ? "AI 生成。" : "用户清单。"}未进行外部核验。\n`;
     const url = URL.createObjectURL(
       new Blob([text], { type: "text/markdown;charset=utf-8" }),
     );
@@ -1368,7 +1332,6 @@ function MatterDialog({
             {runLabels[run.status]}
             {run.status === "FAILED" &&
               "，请检查服务配置；不确定的付费请求不会自动重发。"}
-            {run.mode === "demo" && " · 本地演示生成"}
           </p>
         )}
         {!!run?.used_memory_count && (
@@ -1417,6 +1380,7 @@ function MatterDialog({
             className="secondary"
             disabled={
               busy ||
+              !modelID ||
               m.status === "COMPLETED" ||
               (!!run && ["QUEUED", "RUNNING"].includes(run.status))
             }

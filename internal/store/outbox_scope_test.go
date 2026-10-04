@@ -11,7 +11,7 @@ func TestScopedRelayCannotConsumeAnotherTestWorkspace(t *testing.T) {
 	s, w := fixture(t)
 	ctx := context.Background()
 	m := create(t, s, w, nil)
-	if _, err := s.Command(ctx, w, domain.ID(), "scoped-run", nil, func(tx pgx.Tx) (any, int, error) { return s.CreateRun(ctx, tx, w, m.ID, "demo", "fixture", 1) }); err != nil {
+	if _, err := s.Command(ctx, w, domain.ID(), "scoped-run", nil, func(tx pgx.Tx) (any, int, error) { return s.CreateRun(ctx, tx, w, m.ID, "fixture", "fixture", 1) }); err != nil {
 		t.Fatal(err)
 	}
 	out, err := s.LeaseOutbox(ctx, w)

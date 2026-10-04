@@ -1,0 +1,99 @@
+package runtime
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/worker"
+	"nemi/internal/config"
+	"nemi/internal/model"
+	"nemi/internal/store"
+	"nemi/internal/vault"
+)
+
+// Compiled only into the Go test executable, never any product binary. The
+// browser suite exercises real PG/Temporal plus this provider protocol fixture.
+func TestE2EWorkerService(t *testing.T) {
+	if os.Getenv("NEMI_E2E_WORKER") != "1" {
+		t.Skip("isolated browser worker only")
+	}
+	c, err := config.Load()
+	if err != nil {
+		t.Fatal("invalid isolated worker config")
+	}
+	if !strings.Contains(c.DB, "/nemi_test?") || !strings.HasPrefix(c.RunQueue, "nemi-e2e-") {
+		t.Fatal("dedicated database and queue required")
+	}
+	s, err := store.Open(context.Background(), c.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Pool.Close()
+	if err = s.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	v, err := vault.Open(c.VaultKey, c.VaultPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := model.New(c)
+	g.HTTP.Transport = personalTransport(func(r *http.Request) (*http.Response, error) {
+		var body struct {
+			Messages []struct{ Role, Content string }
+			Model    string
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			return nil, err
+		}
+		content := `{"summary":"核对出行资料","items":["确认出发时间、同行人数与预算","核实开放时间与交通","准备证件和充电设备"]}`
+		var toolCall any
+		if !strings.Contains(body.Messages[0].Content, "仅输出 JSON") {
+			last := body.Messages[len(body.Messages)-1].Content
+			if strings.Contains(last, "触发认证失败") {
+				return &http.Response{StatusCode: 401, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"fixture authentication failed"}}`))}, nil
+			}
+			if body.Messages[len(body.Messages)-1].Role == "tool" {
+				if strings.Contains(last, `"status":"PENDING"`) {
+					content = "已准备好提案，请确认后创建。"
+				} else {
+					content = "事项查询结果：" + last
+				}
+			} else if strings.HasPrefix(last, "帮我创建一个事项：") {
+				at := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
+				args, _ := json.Marshal(map[string]any{"title": strings.TrimPrefix(last, "帮我创建一个事项："), "category": "life", "source": "收好物品并整理书桌", "reminder_at": at, "repeat": "once"})
+				toolCall = map[string]any{"id": "fixture_proposal", "type": "function", "function": map[string]string{"name": "propose_matter", "arguments": string(args)}}
+			} else if last == "查一下我的事项" {
+				toolCall = map[string]any{"id": "fixture_list", "type": "function", "function": map[string]string{"name": "list_matters", "arguments": "{}"}}
+			} else {
+				content = "收到：" + last
+			}
+			if len(body.Messages) > 2 && body.Messages[len(body.Messages)-1].Role != "tool" {
+				content += "；前文：" + body.Messages[1].Content
+			}
+		}
+		choice := map[string]any{"finish_reason": "stop", "message": map[string]string{"content": content}}
+		if toolCall != nil {
+			choice = map[string]any{"finish_reason": "tool_calls", "message": map[string]any{"tool_calls": []any{toolCall}}}
+		}
+		wire, _ := json.Marshal(map[string]any{"choices": []any{choice}, "usage": map[string]int{"prompt_tokens": 50, "completion_tokens": 30}})
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(wire)))}, nil
+	})
+	engine, err := client.Dial(client.Options{HostPort: c.Temporal})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	w := worker.New(engine, c.RunQueue, worker.Options{})
+	w.RegisterWorkflow(RunWorkflow)
+	w.RegisterActivity(&Activities{Store: s, Gateway: g, Vault: v})
+	if err = w.Run(worker.InterruptCh()); err != nil {
+		t.Fatal(err)
+	}
+}

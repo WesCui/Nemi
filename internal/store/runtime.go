@@ -20,6 +20,12 @@ type RunInput struct {
 	Ready, Done            bool
 }
 
+func (s *Store) RunKind(ctx context.Context, r Ref) (string, error) {
+	var kind string
+	err := s.Pool.QueryRow(ctx, "SELECT kind FROM runs WHERE workspace_id=$1 AND id=$2", r.Workspace, r.ID).Scan(&kind)
+	return kind, err
+}
+
 // Reserve is serialized with admissions so concurrent workers cannot overspend.
 func (s *Store) AdmitRun(ctx context.Context, r Ref, reserve func(string, string) int64) (RunInput, error) {
 	tx, e := s.Pool.Begin(ctx)
@@ -65,7 +71,7 @@ func (s *Store) AdmitRun(ctx context.Context, r Ref, reserve func(string, string
 		return in, errors.New("RUN_BUDGET_EXCEEDED")
 	}
 	var daily int64
-	e = tx.QueryRow(ctx, "SELECT COALESCE(sum(GREATEST(reserved_micro_cny,charged_micro_cny)),0) FROM runs WHERE workspace_id=$1 AND budget_day=(now() AT TIME ZONE 'Asia/Shanghai')::date", r.Workspace).Scan(&daily)
+	e = tx.QueryRow(ctx, "SELECT COALESCE(sum(reserved_micro_cny+charged_micro_cny),0) FROM runs WHERE workspace_id=$1 AND budget_day=(now() AT TIME ZONE 'Asia/Shanghai')::date", r.Workspace).Scan(&daily)
 	if e != nil {
 		return in, e
 	}
@@ -135,9 +141,9 @@ func (s *Store) FinishRun(ctx context.Context, r Ref, plan domain.Plan, input, o
 		return e
 	}
 	defer tx.Rollback(ctx)
-	var status, mid string
+	var status, mid, kind, conversation string
 	var rev int
-	e = tx.QueryRow(ctx, "SELECT status,matter_id,matter_revision FROM runs WHERE workspace_id=$1 AND id=$2 FOR UPDATE", r.Workspace, r.ID).Scan(&status, &mid, &rev)
+	e = tx.QueryRow(ctx, "SELECT status,COALESCE(matter_id,''),matter_revision,kind,COALESCE(conversation_id,'') FROM runs WHERE workspace_id=$1 AND id=$2 FOR UPDATE", r.Workspace, r.ID).Scan(&status, &mid, &rev, &kind, &conversation)
 	if e != nil {
 		return e
 	}
@@ -160,8 +166,12 @@ func (s *Store) FinishRun(ctx context.Context, r Ref, plan domain.Plan, input, o
 	if _, e = tx.Exec(ctx, "UPDATE personal_models SET verified_at=now() WHERE workspace_id=$1 AND id=(SELECT model_config_id FROM runs WHERE workspace_id=$1 AND id=$2) AND NOT revoked", r.Workspace, r.ID); e != nil {
 		return e
 	}
-	// Results remain available on the Run, but never overwrite a user's newer checklist.
-	_, e = tx.Exec(ctx, "UPDATE matters SET items=$3,revision=revision+1 WHERE workspace_id=$1 AND id=$2 AND revision=$4 AND status='ACTIVE'", r.Workspace, mid, ib, rev)
+	if kind == "chat" {
+		_, e = tx.Exec(ctx, "UPDATE conversations SET updated_at=now() WHERE workspace_id=$1 AND id=$2", r.Workspace, conversation)
+	} else {
+		// Never overwrite a user's newer checklist.
+		_, e = tx.Exec(ctx, "UPDATE matters SET items=$3,revision=revision+1 WHERE workspace_id=$1 AND id=$2 AND revision=$4 AND status='ACTIVE'", r.Workspace, mid, ib, rev)
+	}
 	if e != nil {
 		return e
 	}
@@ -178,9 +188,9 @@ func (s *Store) FailRun(ctx context.Context, r Ref, code string, input, output, 
 	defer tx.Rollback(ctx)
 	// A completed activity result may have committed just before the workflow timed out.
 	tag, e := tx.Exec(ctx, `UPDATE runs SET status='FAILED',error_code=$3,
- attempt_status=CASE WHEN attempt_status='CALLING' AND $4=0 THEN 'UNKNOWN' ELSE 'SETTLED' END,
- reserved_micro_cny=CASE WHEN attempt_status='CALLING' AND $4=0 THEN reserved_micro_cny ELSE 0 END,
- charged_micro_cny=$4,input_tokens=$5,output_tokens=$6,updated_at=now()
+ attempt_status=CASE WHEN (kind='plan' AND attempt_status='CALLING' AND $4=0) OR EXISTS(SELECT 1 FROM agent_steps WHERE workspace_id=$1 AND run_id=$2 AND kind='MODEL' AND status IN ('CALLING','UNKNOWN')) THEN 'UNKNOWN' ELSE 'SETTLED' END,
+ reserved_micro_cny=CASE WHEN (kind='plan' AND attempt_status='CALLING' AND $4=0) OR EXISTS(SELECT 1 FROM agent_steps WHERE workspace_id=$1 AND run_id=$2 AND kind='MODEL' AND status IN ('CALLING','UNKNOWN')) THEN reserved_micro_cny ELSE 0 END,
+ charged_micro_cny=GREATEST(charged_micro_cny,$4),input_tokens=GREATEST(input_tokens,$5),output_tokens=GREATEST(output_tokens,$6),updated_at=now()
  WHERE workspace_id=$1 AND id=$2 AND status IN ('QUEUED','RUNNING')`, r.Workspace, r.ID, code, cost, input, output)
 	if e != nil {
 		return e
