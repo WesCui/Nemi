@@ -24,19 +24,27 @@ type Output struct {
 	InputTokens, OutputTokens int64
 }
 type Gateway struct {
-	Config config.Config
-	HTTP   *http.Client
+	Config   config.Config
+	HTTP     *http.Client
+	ConfigID string
 }
 
 func New(c config.Config) *Gateway {
-	return &Gateway{c, &http.Client{Timeout: 120 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}}
+	return &Gateway{Config: c, HTTP: &http.Client{Timeout: 120 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 func (g *Gateway) Profile() string {
-	return fmt.Sprintf("%s:%s:%d:%d:plan-v2", g.Config.Provider, g.Config.Model, g.Config.InputPrice, g.Config.OutputPrice)
+	p := fmt.Sprintf("%s:%s:%d:%d:plan-v2", g.Config.Provider, g.Config.Model, g.Config.InputPrice, g.Config.OutputPrice)
+	if g.ConfigID != "" {
+		p += ":" + g.ConfigID
+	}
+	return p
 }
 func (g *Gateway) Mode() string {
 	if g.Config.Provider == "demo" {
 		return "demo"
+	}
+	if g.ConfigID != "" {
+		return "personal"
 	}
 	return "managed"
 }
@@ -59,11 +67,22 @@ func (g *Gateway) Generate(ctx context.Context, title, source string) (Output, e
 		}
 		return Output{Plan: domain.Plan{Summary: "这是本地演示清单，用于体验保存、后台处理和事项跟进。", Items: items}}, nil
 	}
-	endpoint := "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-	if g.Config.Provider == "deepseek" {
-		endpoint = "https://api.deepseek.com/chat/completions"
+	p, ok := ProviderByID(g.Config.Provider)
+	if !ok {
+		return Output{}, errors.New("MODEL_PROVIDER_UNSUPPORTED")
 	}
-	body, _ := json.Marshal(map[string]any{"model": g.Config.Model, "messages": []map[string]string{{"role": "system", "content": instruction}, {"role": "user", "content": "事项：" + title + "\n用户提供资料：\n" + source}}, "max_tokens": MaxOutputTokens, "stream": false})
+	payload := map[string]any{"model": g.Config.Model, "messages": []map[string]string{{"role": "system", "content": instruction}, {"role": "user", "content": "事项：" + title + "\n用户提供资料：\n" + source}}, "max_tokens": MaxOutputTokens, "stream": false}
+	if g.Config.Provider == "qwen" {
+		payload["enable_thinking"] = false
+	}
+	if g.Config.Provider == "doubao" || (g.Config.Provider == "kimi" && strings.HasPrefix(g.Config.Model, "kimi-k2") && !strings.Contains(g.Config.Model, "code")) {
+		payload["thinking"] = map[string]string{"type": "disabled"}
+	}
+	if g.Config.Provider == "kimi" && strings.HasPrefix(g.Config.Model, "kimi-k3") {
+		payload["reasoning_effort"] = "low"
+	}
+	body, _ := json.Marshal(payload)
+	endpoint := p.Endpoint
 	req, e := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if e != nil {
 		return Output{}, e

@@ -7,6 +7,7 @@ import (
 	"nemi/internal/config"
 	"nemi/internal/model"
 	"nemi/internal/store"
+	"nemi/internal/vault"
 	"net/http"
 	"os"
 	"os/signal"
@@ -31,13 +32,18 @@ func main() {
 		slog.Error("migration failed")
 		os.Exit(1)
 	}
-	if e = s.Bootstrap(ctx, c.Invite); e != nil {
+	if e = s.Bootstrap(ctx, c.Invite, c.BootstrapID); e != nil {
 		slog.Error("identity initialization failed")
 		os.Exit(1)
 	}
 	h := api.NewHub(s)
 	go h.Run(ctx)
-	a := &api.API{Store: s, Hub: h, Config: c, Gateway: model.New(c)}
+	v, e := vault.Open(c.VaultKey, c.VaultPath)
+	if e != nil {
+		slog.Error("credential vault unavailable")
+		os.Exit(1)
+	}
+	a := &api.API{Store: s, Hub: h, Config: c, Gateway: model.New(c), Vault: v}
 	server := &http.Server{Addr: c.Listen, Handler: a.Handler(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
 	go func() {
 		<-ctx.Done()

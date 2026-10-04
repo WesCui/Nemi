@@ -13,7 +13,7 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 func TestDomesticRequestContracts(t *testing.T) {
-	for provider, host := range map[string]string{"qwen": "dashscope.aliyuncs.com", "deepseek": "api.deepseek.com"} {
+	for provider, host := range map[string]string{"qwen": "dashscope.aliyuncs.com", "deepseek": "api.deepseek.com", "kimi": "api.moonshot.cn", "doubao": "ark.cn-beijing.volces.com", "glm": "open.bigmodel.cn"} {
 		g := New(config.Config{Provider: provider, Model: "contract-fixture", Key: "test-only-placeholder"})
 		g.HTTP.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			if r.URL.Scheme != "https" || r.URL.Host != host || r.Method != "POST" || r.Header.Get("Authorization") != "Bearer test-only-placeholder" {

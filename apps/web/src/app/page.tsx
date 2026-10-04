@@ -48,6 +48,7 @@ import {
 } from "@/components/assistant-next";
 
 import { ConnectionsPanel, MatterApplications } from "@/components/connections";
+import { ModelChoice, ModelOverview, ModelSettings } from "@/components/models";
 
 type View =
   | "today"
@@ -87,6 +88,8 @@ const runLabels: Record<string, string> = {
 
 export default function Home() {
   const [data, setData] = useState<Dashboard | null>(null);
+  const [models, setModels] = useState<ModelOverview | null>(null);
+  const [modelSettings, setModelSettings] = useState(false);
   const [auth, setAuth] = useState<"loading" | "login" | "ready" | "error">(
     "loading",
   );
@@ -99,8 +102,12 @@ export default function Home() {
   const [filter, setFilter] = useState("ACTIVE");
   const refresh = useCallback(async () => {
     try {
-      const d = await api<Dashboard>("/dashboard");
+      const [d, m] = await Promise.all([
+        api<Dashboard>("/dashboard"),
+        api<ModelOverview>("/models"),
+      ]);
       setData(d);
+      setModels(m);
       setAuth("ready");
     } catch (e) {
       if (e instanceof APIError && e.status === 401) {
@@ -135,16 +142,17 @@ export default function Home() {
     };
   }, [auth, refresh]);
   useEffect(() => {
-    if (!create && !selected) return;
+    if (!create && !selected && !modelSettings) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setCreate(false);
         setSelected(null);
+        setModelSettings(false);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [create, selected]);
+  }, [create, selected, modelSettings]);
 
   if (auth === "loading")
     return (
@@ -171,7 +179,7 @@ export default function Home() {
         </button>
       </div>
     );
-  if (auth === "login" || !data) return <Login onLogin={refresh} />;
+  if (auth === "login" || !data || !models) return <Login onLogin={refresh} />;
   const active = data.matters.filter((m) => m.status === "ACTIVE");
   const pending = data.reminders.filter(
     (r) => r.enabled && r.sync_status !== "FIRED",
@@ -238,7 +246,7 @@ export default function Home() {
           <span className="avatar">你</span>
           <div>
             <b>我的个人空间</b>
-            <small>开发体验版 · 仅本人使用</small>
+            <small>事项、偏好与日常安排</small>
           </div>
           <button
             className="icon-button"
@@ -272,10 +280,15 @@ export default function Home() {
             <b>{nav.find((n) => n.id === view)?.title}</b>
           </div>
           <div className="topbar-right">
-            <span className="mode-pill">
+            <button
+              className="mode-pill model-entry"
+              onClick={() => setModelSettings(true)}
+              aria-label="模型配置"
+            >
               <i />
-              {data.model_mode === "demo" ? "演示模式" : "模型已配置"}
-            </span>
+              {models.models.find((m) => m.id === models.default_id)?.label ||
+                (data.model_mode === "demo" ? "配置我的模型" : "模型配置")}
+            </button>
             <button
               className="icon-button notification-button"
               aria-label="查看站内提醒"
@@ -598,7 +611,13 @@ export default function Home() {
             <ActivityPanel data={data} onSelect={setSelected} />
           )}
           {view === "connections" && (
-            <ConnectionsPanel matters={data.matters} />
+            <ConnectionsPanel
+              matters={data.matters}
+              onImported={async (id) => {
+                await refresh();
+                setSelected(id);
+              }}
+            />
           )}
           <footer className="page-footer">
             <span>Nemi · 妮米</span>
@@ -606,16 +625,21 @@ export default function Home() {
               {data.model_mode === "demo"
                 ? "本地演示生成 · 未调用真实模型"
                 : "AI 生成内容，请核对关键资料"}
-              <i>·</i>私有开发体验版
             </span>
           </footer>
         </div>
       </main>
+      {modelSettings && (
+        <Modal title="我的模型" onClose={() => setModelSettings(false)} wide>
+          <ModelSettings data={models} runs={data.runs} onChanged={refresh} />
+        </Modal>
+      )}
       {create && (
         <CreateDialog
           draft={draft}
           demo={data.model_mode === "demo"}
           memoryCount={data.memories.length}
+          models={models}
           onClose={() => setCreate(false)}
           onSaved={async (id) => {
             setCreate(false);
@@ -630,6 +654,7 @@ export default function Home() {
           key={currentMatter.id}
           matter={currentMatter}
           data={data}
+          models={models}
           refresh={refresh}
           onClose={() => setSelected(null)}
         />
@@ -737,7 +762,7 @@ function Login({ onLogin }: { onLogin: () => Promise<void> }) {
           </form>
           <div className="login-footnote">
             <CircleHelp size={15} />
-            <p>本地开发体验版，仅限本人使用。</p>
+            <p>你的事项、偏好与应用，放在一个空间里。</p>
           </div>
         </div>
       </section>
@@ -929,16 +954,19 @@ function CreateDialog({
   draft,
   demo,
   memoryCount,
+  models,
   onClose,
   onSaved,
 }: {
   draft: string;
   demo: boolean;
   memoryCount: number;
+  models: ModelOverview;
   onClose: () => void;
   onSaved: (id: string) => Promise<void>;
 }) {
   const [title, setTitle] = useState(draft.slice(0, 60));
+  const [modelID, setModelID] = useState(models.default_id);
   const [source, setSource] = useState(draft);
   const [category, setCategory] = useState("life");
   const [deadline, setDeadline] = useState("");
@@ -987,7 +1015,11 @@ function CreateDialog({
         try {
           await api(
             `/matters/${m.id}/runs`,
-            { expected_revision: m.revision, use_memory: useMemory },
+            {
+              expected_revision: m.revision,
+              use_memory: useMemory,
+              model_id: modelID || "__fallback__",
+            },
             "POST",
             `${command.current.key}-plan`,
           );
@@ -1114,8 +1146,18 @@ function CreateDialog({
             onChange={(e) => setGenerate(e.target.checked)}
           />
           保存后整理一份行动清单
-          {demo && <span className="tiny-tag">演示生成</span>}
+          {models.fallback_mode === "demo" && !modelID && (
+            <span className="tiny-tag">演示生成</span>
+          )}
         </label>
+        {generate && (
+          <ModelChoice
+            data={models}
+            value={modelID}
+            onChange={setModelID}
+            disabled={busy}
+          />
+        )}
         {memoryCount > 0 && generate && (
           <label className="check-label">
             <input
@@ -1171,11 +1213,13 @@ function CreateDialog({
 function MatterDialog({
   matter: m,
   data,
+  models,
   refresh,
   onClose,
 }: {
   matter: Matter;
   data: Dashboard;
+  models: ModelOverview;
   refresh: () => Promise<void>;
   onClose: () => void;
 }) {
@@ -1186,6 +1230,7 @@ function MatterDialog({
   const [editingReminder, setEditingReminder] = useState(false);
   const [editingSource, setEditingSource] = useState(false);
   const [useMemory, setUseMemory] = useState(true);
+  const [modelID, setModelID] = useState(models.default_id);
   const [optimisticItems, setOptimisticItems] = useState<Item[] | null>(null);
   const shownItems = optimisticItems || m.items;
   async function mutate(body: unknown) {
@@ -1219,6 +1264,7 @@ function MatterDialog({
       await api(`/matters/${m.id}/runs`, {
         expected_revision: m.revision,
         use_memory: useMemory,
+        model_id: modelID || "__fallback__",
       });
       await refresh();
     } catch (err) {
@@ -1342,8 +1388,30 @@ function MatterDialog({
           </label>
         )}
         <div className="source-disclaimer">
-          来源仅为你提供的资料，未进行联网核验、预约或外部操作。
+          来源为所选资料与已确认偏好，未进行预约或其他外部操作。
+          {m.origin_provider === "feishu" && m.origin_url && (
+            <a
+              className="text-button"
+              href={m.origin_url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              查看飞书原文
+            </a>
+          )}
         </div>
+        {m.status === "ACTIVE" && (
+          <div className="matter-form detail-model-choice">
+            <ModelChoice
+              data={models}
+              value={modelID}
+              onChange={setModelID}
+              disabled={
+                busy || (!!run && ["QUEUED", "RUNNING"].includes(run.status))
+              }
+            />
+          </div>
+        )}
         <div className="detail-buttons">
           <button
             className="secondary"

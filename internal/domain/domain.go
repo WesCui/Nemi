@@ -32,15 +32,17 @@ type Plan struct {
 	Items   []string `json:"items"`
 }
 type Matter struct {
-	ID        string     `json:"id"`
-	Title     string     `json:"title"`
-	Source    string     `json:"source"`
-	Category  string     `json:"category"`
-	Status    string     `json:"status"`
-	Revision  int        `json:"revision"`
-	Items     []Item     `json:"items"`
-	Deadline  *time.Time `json:"deadline"`
-	CreatedAt time.Time  `json:"created_at"`
+	OriginURL      string     `json:"origin_url,omitempty"`
+	OriginProvider string     `json:"origin_provider,omitempty"`
+	ID             string     `json:"id"`
+	Title          string     `json:"title"`
+	Source         string     `json:"source"`
+	Category       string     `json:"category"`
+	Status         string     `json:"status"`
+	Revision       int        `json:"revision"`
+	Items          []Item     `json:"items"`
+	Deadline       *time.Time `json:"deadline"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 type Reminder struct {
 	ID         string     `json:"id"`
@@ -86,16 +88,18 @@ type Event struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 type CreateMatter struct {
-	Title      string     `json:"title"`
-	Source     string     `json:"source"`
-	Category   string     `json:"category"`
-	Deadline   *time.Time `json:"deadline"`
-	ReminderAt *time.Time `json:"reminder_at"`
-	Quiet      bool       `json:"quiet"`
-	Timezone   string     `json:"timezone"`
-	Confirmed  bool       `json:"confirmed"`
-	Repeat     string     `json:"repeat"`
-	Until      *time.Time `json:"repeat_until"`
+	OriginURL      string     `json:"-"`
+	OriginProvider string     `json:"-"`
+	Title          string     `json:"title"`
+	Source         string     `json:"source"`
+	Category       string     `json:"category"`
+	Deadline       *time.Time `json:"deadline"`
+	ReminderAt     *time.Time `json:"reminder_at"`
+	Quiet          bool       `json:"quiet"`
+	Timezone       string     `json:"timezone"`
+	Confirmed      bool       `json:"confirmed"`
+	Repeat         string     `json:"repeat"`
+	Until          *time.Time `json:"repeat_until"`
 }
 
 func (c *CreateMatter) Validate(now time.Time) error {

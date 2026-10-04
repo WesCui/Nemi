@@ -1,6 +1,6 @@
 # 国内生活助理 Agent Cloud Runtime 技术架构
 
-版本：v0.3 · 日期：2026-10-04 · 状态：目标架构；代码已推进至 v0.3，实际周期 timer 链、偏好上下文、应用 Adapter 和验证见 [实施状态](./IMPLEMENTATION.md)
+版本：v0.4 · 日期：2026-10-04 · 状态：目标架构；代码已推进至 v0.4，实际周期 timer 链、偏好上下文、应用 Adapter 和验证见 [实施状态](./IMPLEMENTATION.md)
 
 配套见 [PRD](./PRD.md)、[dots 功能对标调研](./DOTS_BENCHMARK.md) 和 [使用场景与办公接入调研](./SCENARIO_RESEARCH.md)。原 FastAPI 方案保留于 [v0.1 存档](./archive/v0.1/ARCHITECTURE.md)。本文的接口、表和流程是本项目设计合同，不是 OpenAI dots 内部实现或已经运行的代码。
 
@@ -16,7 +16,7 @@ Go 负责任务生命周期、模型请求、上下文、权限、预算、连�
 | HTTP / DB | Go net/http、pgx、显式 SQL / Repository | 合同清晰；路由和 SQL 生成工具可在实现时选定 |
 | Durable 编排 | Temporal Go SDK | 复用等待、计时、重放、消息和调度；承担学习与运维成本 |
 | 状态真相 | Temporal 控制执行；PG 保存业务事实和授权 | PG 不再独立推进第二套执行 FSM |
-| 模型 | 平台管理的国内型号与有序回退 | 用户无需 Key；具体能力、地区、价格需合同测试 |
+| 模型 | 平台默认 + 个人 BYOK 国内模型 | 首页管理密钥；任务捕获不可变配置；具体型号须授权并验证 |
 | 事件 | PG 持久事件 + 进程内有界 fanout | HTTP 命令、Web SSE；微信端单独验证传输能力 |
 | 记忆 | PG 结构化偏好、摘要、全文检索 | 可查看和删除；检索质量不足再加 pgvector |
 | 提醒 | 独立确定性 Workflow 与通知队列 | 到点不调用模型，不受推理任务拥堵和模型额度影响 |
@@ -318,7 +318,7 @@ Profile 保存型号、支持 / 不支持 / 未验证的能力、来源与验证
 
 429 / 临时 5xx / 明确不可用可以有限回退；401、拒答、权限限制和 schema 错误分别处理，不跨供应商绕开限制。每次回退记录 Attempt、价格与费用，之前未知请求不能抹账。OCR、ASR、搜索分别选择实际地区与计费配置。
 
-“国内厂商”不自动保证数据驻留，检查实际 endpoint、所购地域、处理条款、日志与子处理方。P0 不向用户开放任意 Base URL。高级 BYOK 将来接入时由 egress 校验 HTTPS、DNS、跳转和目标地址，禁止私网探测与密钥随跨域跳转泄漏。
+“国内厂商”不自动保证数据驻留，检查实际 endpoint、所购地域、处理条款、日志与子处理方。P0 不向用户开放任意 Base URL。个人 BYOK 当前固定到五家官方端点；后续允许自定义端点时由 egress 校验 HTTPS、DNS、跳转和目标地址，禁止私网探测与密钥随跨域跳转泄漏。
 
 ## 8. 工具、授权与副作用
 
@@ -700,3 +700,10 @@ C2 外部写回固定目标日历 / 清单 / 表、日期、参与人、字段�
 Capability Profile 发布前将 UNKNOWN 明确显示不可用。额外模块建议为 `internal/connectors/common`、`feishu`、`wecom`，复用现有模型、预算、Context、Intent 和通知模块，不引入第二套 Agent 状态机。
 
 企微会话全量存档、飞书公司全库扫描、全部私人 App 订单、企业管理和家庭共享不在本轮原型默认范围。所有外部测试使用测试身份与明确允许的数据；公开文档调研不是实际接入或消息发送授权。
+
+
+## v0.4 个人配置与平台接入实现合同
+
+首页模型设置、逐任务选择与账户凭据以空间为范围，配置不进入 Temporal 历史。personal_models 保存不可变模型、价格和密文；workspace_model_settings 保存默认 ID；runs.model_config_id 固定任务账户。app_connections 保存应用密文、revision 和最近验证时间。撤销在 CALLING 提交前校验，已发起请求不作可撤回承诺。
+
+真实应用合同为：三家群机器人逐次确认发送；飞书自建应用显式认证、指定 docx 只读导入，并保存来源链接。它们不表示已经有用户 OAuth、聊天、日历、个人订单或自动工具循环。[实际验收](./IMPLEMENTATION.md)与[对标范围](./PARITY.md)单独记录。

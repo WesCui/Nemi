@@ -1,5 +1,7 @@
 export type Item = { text: string; done: boolean };
 export type Matter = {
+  origin_url?: string;
+  origin_provider?: string;
   id: string;
   title: string;
   source: string;

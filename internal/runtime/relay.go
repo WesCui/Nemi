@@ -52,14 +52,18 @@ func dispatchTo(ctx context.Context, c client.Client, o store.Outbox, runQueue, 
 }
 func Relay(ctx context.Context, s *store.Store, c client.Client, queues ...string) error {
 	runQueue, reminderQueue := RunQueue, ReminderQueue
-	if len(queues) == 2 {
+	if len(queues) >= 2 {
 		runQueue, reminderQueue = queues[0], queues[1]
+	}
+	workspace := ""
+	if len(queues) >= 3 {
+		workspace = queues[2]
 	}
 	for {
 		if ctx.Err() != nil {
 			return nil
 		}
-		o, e := s.LeaseOutbox(ctx)
+		o, e := s.LeaseOutbox(ctx, workspace)
 		if e != nil {
 			return e
 		}

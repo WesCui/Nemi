@@ -38,3 +38,8 @@ Nemi 借鉴显式范围和可管理的记忆接口。v0.2 的偏好只有用户�
 4. 需要云端浏览器时评估 Playwright 与现成的沙箱 Broker，单独验证隔离和接管，再开放生活场景。
 
 上述是下一阶段评估顺序，不表示对应能力已经交付。对标基于 dots 的[任务与记忆](https://learn.chatgpt.com/docs/dots/tasks-and-memory)和[控制与活动](https://learn.chatgpt.com/docs/dots/controls)公开合同，不推定其内部实现。
+
+
+## v0.4 飞书实际复用
+
+直接依赖飞书官方 larksuite/oapi-sdk-go v3.12.0（MIT），复用自建应用授权与 docx raw_content 服务。仅初始化 auth / docx 服务，避免编译无关业务模块；Nemi 负责凭据加密、出站约束、日志脱敏、响应大小、权限错误、确认导入与事务去重。未接入 SDK 的自动渠道发送、隐式重发或 WebSocket 事件。完整许可证存于 licenses/larksuite-oapi-sdk-go-MIT.txt 并随镜像交付。

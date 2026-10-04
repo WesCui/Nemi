@@ -105,6 +105,20 @@ func (s *Store) ClaimModel(ctx context.Context, r Ref, expectedProfile ...string
 	if len(expectedProfile) > 0 && in.Profile != expectedProfile[0] {
 		return in, errors.New("MODEL_CONFIG_CHANGED")
 	}
+	var configID string
+	if e = tx.QueryRow(ctx, "SELECT model_config_id FROM runs WHERE workspace_id=$1 AND id=$2", r.Workspace, r.ID).Scan(&configID); e != nil {
+		return in, e
+	}
+	if configID != "" {
+		var revoked bool
+		e = tx.QueryRow(ctx, "SELECT revoked FROM personal_models WHERE workspace_id=$1 AND id=$2 FOR SHARE", r.Workspace, configID).Scan(&revoked)
+		if errors.Is(e, pgx.ErrNoRows) || revoked {
+			return in, errors.New("MODEL_CONFIG_REVOKED")
+		}
+		if e != nil {
+			return in, e
+		}
+	}
 	var count int
 	in.Source, count, e = memorySource(ctx, tx, r.Workspace, in.Source, refs)
 	if e != nil {
@@ -143,6 +157,9 @@ func (s *Store) FinishRun(ctx context.Context, r Ref, plan domain.Plan, input, o
 		items = append(items, domain.Item{Text: v})
 	}
 	ib, _ := json.Marshal(items)
+	if _, e = tx.Exec(ctx, "UPDATE personal_models SET verified_at=now() WHERE workspace_id=$1 AND id=(SELECT model_config_id FROM runs WHERE workspace_id=$1 AND id=$2) AND NOT revoked", r.Workspace, r.ID); e != nil {
+		return e
+	}
 	// Results remain available on the Run, but never overwrite a user's newer checklist.
 	_, e = tx.Exec(ctx, "UPDATE matters SET items=$3,revision=revision+1 WHERE workspace_id=$1 AND id=$2 AND revision=$4 AND status='ACTIVE'", r.Workspace, mid, ib, rev)
 	if e != nil {
@@ -265,11 +282,18 @@ type Outbox struct {
 	Due                                 *time.Time
 }
 
-func (s *Store) LeaseOutbox(ctx context.Context) (*Outbox, error) {
+func (s *Store) LeaseOutbox(ctx context.Context, workspaces ...string) (*Outbox, error) {
 	o := Outbox{Lease: domain.ID()}
-	e := s.Pool.QueryRow(ctx, `UPDATE outbox SET leased_until=now()+interval '30 seconds',lease_token=$1,attempts=attempts+1 WHERE id=(
- SELECT id FROM outbox WHERE state='PENDING' AND available_at<=now() AND (leased_until IS NULL OR leased_until<now()) ORDER BY available_at,id FOR UPDATE SKIP LOCKED LIMIT 1
- ) RETURNING id,workspace_id,kind,subject_id,revision,due_at`, o.Lease).Scan(&o.ID, &o.Workspace, &o.Kind, &o.Subject, &o.Revision, &o.Due)
+	filter := ""
+	args := []any{o.Lease}
+	if len(workspaces) > 0 && workspaces[0] != "" {
+		filter = " AND workspace_id=$2"
+		args = append(args, workspaces[0])
+	}
+	query := `UPDATE outbox SET leased_until=now()+interval '30 seconds',lease_token=$1,attempts=attempts+1 WHERE id=(
+ SELECT id FROM outbox WHERE state='PENDING' AND available_at<=now() AND (leased_until IS NULL OR leased_until<now())` + filter + ` ORDER BY available_at,id FOR UPDATE SKIP LOCKED LIMIT 1
+ ) RETURNING id,workspace_id,kind,subject_id,revision,due_at`
+	e := s.Pool.QueryRow(ctx, query, args...).Scan(&o.ID, &o.Workspace, &o.Kind, &o.Subject, &o.Revision, &o.Due)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return nil, nil
 	}

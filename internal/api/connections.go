@@ -13,7 +13,28 @@ import (
 )
 
 func (a *API) connections(w http.ResponseWriter, r *http.Request) {
-	send(w, 200, map[string]any{"channels": a.Bots.Statuses()})
+	channels := []map[string]any{}
+	for _, id := range []string{"feishu", "wecom", "dingtalk"} {
+		bot, revision, saved, err := a.botFor(r, id)
+		if err != nil {
+			sendError(w, 503, "暂时无法读取应用配置")
+			return
+		}
+		state, label := "unconfigured", ""
+		if bot.URL != "" {
+			state = "invalid"
+			if connectors.Valid(id, bot) {
+				state = "configured"
+				label = bot.Label
+			}
+		}
+		var verified any
+		if saved != nil {
+			verified = saved.VerifiedAt
+		}
+		channels = append(channels, map[string]any{"id": id, "name": connectors.Names[id], "state": state, "label": label, "revision": revision, "verified_at": verified})
+	}
+	send(w, 200, map[string]any{"channels": channels})
 }
 func (a *API) sendMessage(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -24,6 +45,7 @@ func (a *API) sendMessage(w http.ResponseWriter, r *http.Request) {
 	var b struct {
 		Text      string `json:"text"`
 		Confirmed bool   `json:"confirmed"`
+		Revision  int    `json:"config_revision"`
 	}
 	raw, e := decode(w, r, &b)
 	if e != nil || !b.Confirmed || strings.TrimSpace(b.Text) == "" || len([]byte(b.Text)) > 1800 {
@@ -35,7 +57,16 @@ func (a *API) sendMessage(w http.ResponseWriter, r *http.Request) {
 		sendError(w, 400, "缺少有效的发送标识")
 		return
 	}
-	if !connectors.Valid(id, a.Bots.Bots[id]) {
+	bot, revision, _, e := a.botFor(r, id)
+	if e != nil {
+		sendError(w, 503, "应用凭据暂时不可用")
+		return
+	}
+	if b.Revision != revision {
+		sendError(w, 409, "接收群配置已更改，请刷新并重新确认")
+		return
+	}
+	if !connectors.Valid(id, bot) {
 		sendError(w, 409, "此群机器人尚未正确配置")
 		return
 	}
@@ -52,12 +83,17 @@ func (a *API) sendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if claimed {
-		status = a.Bots.Send(r.Context(), id, b.Text)
+		sender := connectors.New(map[string]connectors.Bot{id: bot})
+		sender.Client = a.Bots.Client
+		status = sender.Send(r.Context(), id, b.Text)
 		// Persist even when the requester disconnects, without repeating the send.
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 3*time.Second)
 		defer cancel()
 		if a.Store.SettleDispatch(ctx, workspace, key, status) != nil {
 			status = "UNKNOWN"
+		}
+		if status == "DELIVERED" {
+			_ = a.Store.VerifyConnection(ctx, workspace, id, revision)
 		}
 	}
 	send(w, 200, map[string]string{"status": status})

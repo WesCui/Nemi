@@ -1,5 +1,5 @@
 import { spawn, execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -10,6 +10,7 @@ if (!database || new URL(database).pathname !== "/nemi_test")
 const env = {
   ...process.env,
   APP_ENV: "development",
+  APP_CREDENTIAL_KEY: randomBytes(32).toString("hex"),
   DATABASE_URL: database,
   TEMPORAL_ADDRESS: process.env.TEST_TEMPORAL_ADDRESS || "127.0.0.1:7233",
   APP_INVITE_CODE: randomUUID(),
@@ -23,6 +24,8 @@ const env = {
 };
 env.NEMI_TEST_INVITE_CODE = env.APP_INVITE_CODE;
 const suffix = randomUUID().slice(0, 8);
+env.APP_BOOTSTRAP_ID = `nemi-e2e-${suffix}`;
+env.APP_OUTBOX_WORKSPACE = env.APP_BOOTSTRAP_ID;
 env.TEMPORAL_RUN_QUEUE = `nemi-e2e-${suffix}-runtime`;
 env.TEMPORAL_REMINDER_QUEUE = `nemi-e2e-${suffix}-reminders`;
 for (const key of Object.keys(env))

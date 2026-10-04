@@ -62,3 +62,21 @@ CREATE TABLE IF NOT EXISTS connector_dispatches (
 );
 CREATE INDEX IF NOT EXISTS connector_dispatch_quota ON connector_dispatches(workspace_id,created_at);
 INSERT INTO schema_versions(version) VALUES(4) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS personal_models (
+ workspace_id text NOT NULL REFERENCES workspaces(id), id text NOT NULL, label text NOT NULL, provider text NOT NULL, model text NOT NULL,
+ input_price bigint NOT NULL CHECK(input_price>0 AND input_price<=1000000000), output_price bigint NOT NULL CHECK(output_price>0 AND output_price<=1000000000),
+ credential bytea NOT NULL, revoked boolean NOT NULL DEFAULT false, verified_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(workspace_id,id)
+);
+CREATE TABLE IF NOT EXISTS workspace_model_settings (
+ workspace_id text PRIMARY KEY REFERENCES workspaces(id), model_id text NOT NULL DEFAULT ''
+);
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS model_config_id text NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS app_connections (
+ workspace_id text NOT NULL REFERENCES workspaces(id), id text NOT NULL, label text NOT NULL, revision int NOT NULL CHECK(revision>0),
+ credential bytea NOT NULL, enabled boolean NOT NULL DEFAULT true, verified_at timestamptz,
+ PRIMARY KEY(workspace_id,id)
+);
+INSERT INTO schema_versions(version) VALUES(5) ON CONFLICT DO NOTHING;
+ALTER TABLE matters ADD COLUMN IF NOT EXISTS origin_url text NOT NULL DEFAULT '';
+ALTER TABLE matters ADD COLUMN IF NOT EXISTS origin_provider text NOT NULL DEFAULT '';

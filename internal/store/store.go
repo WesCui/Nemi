@@ -50,17 +50,24 @@ func (s *Store) Migrate(ctx context.Context) error {
 	}
 	return tx.Commit(ctx)
 }
-func (s *Store) Bootstrap(ctx context.Context, code string) error {
+func (s *Store) Bootstrap(ctx context.Context, code string, ownerIDs ...string) error {
+	owner := "local-owner"
+	if len(ownerIDs) > 0 {
+		owner = ownerIDs[0]
+	}
+	if len(owner) < 1 || len(owner) > 100 {
+		return errors.New("invalid bootstrap identity")
+	}
 	h := sha256.Sum256([]byte(code))
 	tx, e := s.Pool.Begin(ctx)
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback(ctx)
-	if _, e = tx.Exec(ctx, "INSERT INTO workspaces(id) VALUES('local-owner') ON CONFLICT DO NOTHING"); e != nil {
+	if _, e = tx.Exec(ctx, "INSERT INTO workspaces(id) VALUES($1) ON CONFLICT DO NOTHING", owner); e != nil {
 		return e
 	}
-	_, e = tx.Exec(ctx, "INSERT INTO users(id,workspace_id,invite_hash,display_name) VALUES('local-owner','local-owner',$1,'朋友') ON CONFLICT(id) DO UPDATE SET invite_hash=EXCLUDED.invite_hash", h[:])
+	_, e = tx.Exec(ctx, "INSERT INTO users(id,workspace_id,invite_hash,display_name) VALUES($1,$1,$2,'朋友') ON CONFLICT(id) DO UPDATE SET invite_hash=EXCLUDED.invite_hash", owner, h[:])
 	if e != nil {
 		return e
 	}
@@ -148,12 +155,12 @@ func (s *Store) Command(ctx context.Context, w, key, route string, body []byte, 
 	return CommandResult{out, code}, nil
 }
 
-const matterSelect = "SELECT id,title,source,category,status,revision,items,deadline,created_at FROM matters"
+const matterSelect = "SELECT id,title,source,category,status,revision,items,deadline,created_at,origin_url,origin_provider FROM matters"
 
 func scanMatter(row pgx.Row) (domain.Matter, error) {
 	var m domain.Matter
 	var items []byte
-	e := row.Scan(&m.ID, &m.Title, &m.Source, &m.Category, &m.Status, &m.Revision, &items, &m.Deadline, &m.CreatedAt)
+	e := row.Scan(&m.ID, &m.Title, &m.Source, &m.Category, &m.Status, &m.Revision, &items, &m.Deadline, &m.CreatedAt, &m.OriginURL, &m.OriginProvider)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return m, domain.ErrNotFound
 	}
@@ -165,9 +172,15 @@ func scanMatter(row pgx.Row) (domain.Matter, error) {
 }
 func (s *Store) CreateMatter(ctx context.Context, tx pgx.Tx, w string, c domain.CreateMatter) (any, int, error) {
 	m := domain.Matter{ID: domain.ID(), Title: c.Title, Source: c.Source, Category: c.Category, Status: "ACTIVE", Revision: 1, Items: []domain.Item{}, Deadline: c.Deadline, CreatedAt: time.Now().UTC()}
+	m.OriginURL, m.OriginProvider = c.OriginURL, c.OriginProvider
 	_, e := tx.Exec(ctx, "INSERT INTO matters(workspace_id,id,title,source,category,status,deadline,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", w, m.ID, m.Title, m.Source, m.Category, m.Status, m.Deadline, m.CreatedAt)
 	if e != nil {
 		return nil, 0, e
+	}
+	if c.OriginURL != "" {
+		if _, e = tx.Exec(ctx, "UPDATE matters SET origin_url=$3,origin_provider=$4 WHERE workspace_id=$1 AND id=$2", w, m.ID, c.OriginURL, c.OriginProvider); e != nil {
+			return nil, 0, e
+		}
 	}
 	if c.ReminderAt != nil {
 		id := domain.ID()

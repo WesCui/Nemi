@@ -20,16 +20,19 @@ import (
 	"nemi/internal/domain"
 	"nemi/internal/model"
 	"nemi/internal/store"
+	"nemi/internal/vault"
 )
 
 type API struct {
-	Store   *store.Store
-	Hub     *Hub
-	Config  config.Config
-	Gateway *model.Gateway
-	Bots    *connectors.Sender
-	mu      sync.Mutex
-	logins  map[string]loginWindow
+	Store     *store.Store
+	Hub       *Hub
+	Config    config.Config
+	Gateway   *model.Gateway
+	Bots      *connectors.Sender
+	Vault     *vault.Vault
+	Documents *connectors.FeishuDocuments
+	mu        sync.Mutex
+	logins    map[string]loginWindow
 }
 type loginWindow struct {
 	count int
@@ -38,6 +41,9 @@ type loginWindow struct {
 type identityKey struct{}
 
 func (a *API) Handler() http.Handler {
+	if a.Documents == nil {
+		a.Documents = connectors.NewFeishuDocuments()
+	}
 	if a.Bots == nil {
 		a.Bots = connectors.New(a.Config.Bots)
 	}
@@ -51,6 +57,15 @@ func (a *API) Handler() http.Handler {
 	})))
 	m.Handle("GET /api/v1/dashboard", a.auth(http.HandlerFunc(a.dashboard)))
 	m.Handle("GET /api/v1/connections", a.auth(http.HandlerFunc(a.connections)))
+	m.Handle("PUT /api/v1/connections/{id}", a.auth(http.HandlerFunc(a.saveConnection)))
+	m.Handle("GET /api/v1/models", a.auth(http.HandlerFunc(a.models)))
+	m.Handle("POST /api/v1/models", a.auth(http.HandlerFunc(a.saveModel)))
+	m.Handle("PUT /api/v1/models/default", a.auth(http.HandlerFunc(a.defaultModel)))
+	m.Handle("DELETE /api/v1/models/{id}", a.auth(http.HandlerFunc(a.removeModel)))
+	m.Handle("POST /api/v1/models/{id}/check", a.auth(http.HandlerFunc(a.checkModel)))
+	m.Handle("GET /api/v1/connections/feishu/documents", a.auth(http.HandlerFunc(a.feishuDocsState)))
+	m.Handle("PUT /api/v1/connections/feishu/documents", a.auth(http.HandlerFunc(a.saveFeishuDocs)))
+	m.Handle("POST /api/v1/connections/feishu/documents/import", a.auth(http.HandlerFunc(a.importFeishuDoc)))
 	m.Handle("POST /api/v1/connections/{id}/messages", a.auth(http.HandlerFunc(a.sendMessage)))
 	m.Handle("GET /api/v1/matters/{id}/calendar", a.auth(http.HandlerFunc(a.calendar)))
 	m.Handle("GET /api/v1/events", a.auth(http.HandlerFunc(a.events)))
@@ -185,6 +200,13 @@ func (a *API) command(w http.ResponseWriter, r *http.Request, b []byte, fn func(
 			sendError(w, 409, "这项事项已经在整理中")
 		case errors.Is(e, domain.ErrMemoryLimit):
 			sendError(w, 409, "最多保存 50 条偏好，请先整理已有内容")
+		case strings.HasPrefix(e.Error(), "DOCUMENT_"):
+			messages := map[string]string{"DOCUMENT_AUTH_OR_NETWORK_FAILED": "飞书应用认证或网络请求失败，请检查凭据与应用发布状态", "DOCUMENT_PERMISSION_OR_CONTENT_FAILED": "无法读取此文档，请检查应用的文档读取权限并将文档授权给应用", "DOCUMENT_EMPTY": "此文档没有可导入的文本", "DOCUMENT_TOO_LARGE": "文档超过 12000 字节，请选用较短的文档或手动粘贴需要的段落"}
+			message := messages[e.Error()]
+			if message == "" {
+				message = "无法读取此飞书文档"
+			}
+			sendError(w, 422, message)
 		default:
 			slog.Error("business command failed")
 			sendError(w, 503, "暂时无法保存，请稍后重试")
@@ -279,8 +301,9 @@ func (a *API) saveReminder(w http.ResponseWriter, r *http.Request) {
 }
 func (a *API) createRun(w http.ResponseWriter, r *http.Request) {
 	var p struct {
-		Expected  int  `json:"expected_revision"`
-		UseMemory bool `json:"use_memory"`
+		Expected  int    `json:"expected_revision"`
+		UseMemory bool   `json:"use_memory"`
+		ModelID   string `json:"model_id"`
 	}
 	b, e := decode(w, r, &p)
 	if e != nil || p.Expected < 1 {
@@ -288,7 +311,27 @@ func (a *API) createRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.command(w, r, b, func(tx pgx.Tx) (any, int, error) {
-		return a.Store.CreateRun(r.Context(), tx, identity(r).Workspace, r.PathValue("id"), a.Gateway.Mode(), a.Gateway.Profile(), p.Expected, p.UseMemory)
+		ws := identity(r).Workspace
+		var selected *store.PersonalModel
+		var e error
+		if p.ModelID != "__fallback__" {
+			selected, e = a.Store.SelectedModel(r.Context(), tx, ws, p.ModelID)
+		}
+		if e != nil {
+			return nil, 0, e
+		}
+		g := a.Gateway
+		if selected != nil {
+			g, e = model.Personal(*selected, ws, a.Vault)
+			if e != nil {
+				return nil, 0, e
+			}
+		}
+		out, status, e := a.Store.CreateRun(r.Context(), tx, ws, r.PathValue("id"), g.Mode(), g.Profile(), p.Expected, p.UseMemory)
+		if e == nil && selected != nil {
+			e = a.Store.BindRunModel(r.Context(), tx, ws, out.(domain.Run).ID, selected.ID)
+		}
+		return out, status, e
 	})
 }
 func (a *API) dashboard(w http.ResponseWriter, r *http.Request) {
@@ -296,6 +339,19 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		sendError(w, 503, "暂时无法读取事项")
 		return
+	}
+	models, selected, e := a.Store.Models(r.Context(), identity(r).Workspace)
+	if e != nil {
+		sendError(w, 503, "暂时无法读取模型设置")
+		return
+	}
+	if selected != "" {
+		for _, m := range models {
+			if m.ID == selected {
+				d.ModelMode = "personal"
+				break
+			}
+		}
 	}
 	send(w, 200, d)
 }

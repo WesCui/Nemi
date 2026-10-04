@@ -12,6 +12,8 @@ type Config struct {
 	InputPrice, OutputPrice                                    int64
 	Bots                                                       map[string]connectors.Bot
 	RunQueue, ReminderQueue                                    string
+	VaultKey, VaultPath                                        string
+	BootstrapID, OutboxWorkspace                               string
 }
 
 func env(k, d string) string {
@@ -26,12 +28,16 @@ func Load() (Config, error) {
 		return c, fmt.Errorf("this first slice supports private development only; production identity is not implemented")
 	}
 	c.Bots = connectors.LoadEnv()
+	c.BootstrapID = env("APP_BOOTSTRAP_ID", "local-owner")
+	c.OutboxWorkspace = os.Getenv("APP_OUTBOX_WORKSPACE")
+	c.VaultKey = os.Getenv("APP_CREDENTIAL_KEY")
+	c.VaultPath = env("APP_CREDENTIAL_KEY_FILE", "data/credentials.key")
 	c.RunQueue = env("TEMPORAL_RUN_QUEUE", "nemi-runtime-v1")
 	c.ReminderQueue = env("TEMPORAL_REMINDER_QUEUE", "nemi-notification-v1")
 	if c.DB == "" || len(c.Invite) < 16 {
 		return c, fmt.Errorf("DATABASE_URL and an APP_INVITE_CODE of at least 16 characters are required")
 	}
-	if c.Provider != "demo" && c.Provider != "qwen" && c.Provider != "deepseek" {
+	if c.Provider != "demo" && c.Provider != "qwen" && c.Provider != "deepseek" && c.Provider != "kimi" && c.Provider != "doubao" && c.Provider != "glm" {
 		return c, fmt.Errorf("unsupported model provider")
 	}
 	if c.Provider != "demo" {

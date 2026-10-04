@@ -15,7 +15,7 @@ func main() {
 	defer t.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if e := runtime.Relay(ctx, s, t, c.RunQueue, c.ReminderQueue); e != nil {
+	if e := runtime.Relay(ctx, s, t, c.RunQueue, c.ReminderQueue, c.OutboxWorkspace); e != nil {
 		slog.Error("relay failed")
 		os.Exit(1)
 	}

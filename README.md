@@ -2,80 +2,61 @@
 
 **事项、提醒与常用应用，你的个人生活空间。**
 
-面向国内个人用户的持续生活助理。参考 OpenAI dots 的持续职责与后台执行体验，工程底座采用 **Next.js + Go + Temporal + PostgreSQL**。Nemi 是独立实现，dots 的内部技术栈没有公开确认。
+面向国内个人用户的持续生活助理，参考 OpenAI dots 的后台执行与持续跟进体验。采用 **Next.js + Go + Temporal + PostgreSQL**，独立实现运行时；dots 的内部技术栈没有公开确认。
 
-当前为 **v0.3 应用协作开发版**，用于私有本地开发。默认使用明确标识的演示生成器，不需要真实模型密钥。它还不是完整 P0，也不适合直接公开部署。
+## v0.4 已交付
 
-## 已实现
+- 中文响应式首页、事项清单、工作动态、生活偏好与应用目录；首页直接配置个人模型。
+- 通义千问、DeepSeek、Kimi、豆包、智谱：保存个人密钥、选择默认模型或任务模型、撤销配置、确认后真实调用检查。具体型号需有账号权限并通过检查。
+- 凭据使用 AES-256-GCM 加密，绑定空间、用途与配置。密钥不回显，不写入任务参数、业务事件或 Git。
+- 飞书、企业微信、钉钉群机器人：页面配置、签名、正文与目标预览、确认发送、持久去重和联调回执。
+- 飞书官方 Go SDK：自建应用认证、读取选定且授权的 docx 文档、导入事项资料并保留原文入口。
+- 高德官方地点搜索跳转、单次 ICS 日历导出、Markdown 清单下载。
+- 事项持续补充资料与版本保护、已确认偏好引用、后台清单生成、费用预留与结算。
+- Temporal 持久运行、PG Outbox、共享 SSE；一次性和有结束日期的周期站内提醒、北京时间与免打扰。
 
-- 个人空间邀请口令登录、服务端会话与数据范围校验。
-- 文字资料 → 确认事项、截止时间与提醒 → 保存 → 后台生成行动清单。
-- 清单勾选、事项完成与重新跟进、Markdown 清单下载。
-- 同一事项补充 / 修改资料，重新整理时使用新资料，旧结果不覆盖用户的新版本。
-- 用户确认的生活偏好：保存、修改、移除、场景范围及每次生成的引用开关。
-- 工作动态：查看后台生成进度、历史结果和提醒 / 偏好变化。
-- Temporal 模型工作流与独立提醒队列；一次性 / 每天 / 周一至周五 / 每周提醒、结束日期、北京时间与 22:00–08:00 免打扰。
-- 提醒改期 / 停用、旧 revision 准入检查、站内记录去重；完成事项自动停用提醒。
-- PostgreSQL 事务 Outbox、命令幂等、乐观版本检查、持久业务事件与共享 SSE 读取。
-- 千问 / DeepSeek 文本清单 Adapter、整数费用预留与结算、并发准入；真实请求结果不确定时保留预留且不自动重发。
-- 重制中文响应式页面：纸白与炭黑、真实事项概要、应用目录及使用范围。
-- 高德官方地点搜索跳转、单次 .ics 日历导出（开源 golang-ical）。
-- 飞书 / 企微 / 钉钉文字群机器人 Adapter，预览确认、签名、持久发送去重和准确回执；需自行配置，未完成真实群联调。
+保存配置不会自动调用模型、读取文档或发送消息。默认仍可使用明确标识的演示生成器。真实账号授权与实群验收记录见 [实施状态](docs/IMPLEMENTATION.md)。
 
-## 本地运行：Docker
+## 本地运行
 
-需要 Go 1.26、Node.js 22 和已运行的 Docker Desktop / Docker Engine。
+Windows 请使用 Git Bash。完整步骤见 [开发运行指南](docs/DEVELOPMENT.md)。
 
 ```bash
 cp .env.example .env
-# 修改 .env 中的 APP_INVITE_CODE，随后：
+# 修改邀请口令后启动基础设施与后端：
 docker compose up -d --build
 cd apps/web
 npm ci
 npm run dev
 ```
 
-打开 **http://localhost:3000**，输入 `.env` 中的邀请口令。Temporal 开发界面位于 http://localhost:8233，仅监听本机。
-
-本地基础设施只绑定 loopback；`compose.yaml` 中的数据库密码属于开发配置。Temporal 使用持久文件的开发服务器；生产需要独立引擎数据库、认证与备份，不能沿用此配置。
-
-## Windows 无 Docker 开发
-
-提供项目目录内的 PostgreSQL 开发依赖与 Temporal 官方 CLI。安装包和数据分别位于被 Git 忽略的 `.cache`、`data`；不会创建系统服务或系统用户。完整步骤见 [开发运行指南](docs/DEVELOPMENT.md)。
+访问 http://localhost:3000。API 与 Worker 必须共享加密主密钥；Compose 挂载同一 credential-data 卷。无 Docker 时可使用仓库的 PostgreSQL 与 Temporal 开发脚本。
 
 ## 验证
 
+所有集成测试使用专用 nemi_test 数据库及独立 Temporal 队列，不能对用户数据库执行清理。先按运行指南配置 TEST_DATABASE_URL 和 TEST_TEMPORAL_ADDRESS，再执行：
+
 ```bash
 source scripts/env.sh
-go test ./...
+go test -count=1 ./...
 go vet ./...
+bash scripts/build.sh
+npm run test:e2e:isolated
 cd apps/web
 npm run build
 npm run typecheck
 ```
 
-数据库集成测试需单独的 `nemi_test` 数据库和 `TEST_DATABASE_URL`；没有配置时会明确跳过，不能视为集成验证通过。浏览器测试见运行指南。实际本次验证记录见 [实施状态](docs/IMPLEMENTATION.md)。
-
-## 范围与下一步
-
-此切片每次 Run 只调用一次模型生成清单，尚无通用工具循环、浏览器执行或外部自动行动；群消息只能由用户逐次确认发送。站内记录需要打开页面查看，不等于手机离线推送。
-
-周期日期计算直接复用 MIT 许可的 `teambition/rrule-go`，执行与恢复复用 Temporal Go SDK；OpenClaw / Mem0 的任务和记忆管理作为设计参考。日历导出复用 Apache-2.0 的 `arran4/golang-ical`。具体采用、暂未引入的组件及许可证见 [开源复用说明](docs/OPEN_SOURCE.md)。
-
-真实模型账号评测、多用户生产身份、微信小程序 / 订阅通知、文件上传 / OCR / S3、自动记忆提取与语义检索、完整隐私导出删除、飞书 / 企微 / 钉钉真实账号联调及授权读取、生产加密和部署仍待实施。模型密钥只允许由管理员配置到服务端，不能提交进 Git。
-
-## 设计与调研
+## 产品与工程文档
 
 | 文档 | 内容 |
 | --- | --- |
-| [PRD v0.3](docs/PRD.md) | 国内个人生活助理的完整需求与分期 |
-| [架构 v0.3](docs/ARCHITECTURE.md) | 目标架构、持久执行、权限、成本与提醒合同 |
-| [dots 对标](docs/DOTS_BENCHMARK.md) | 公开能力、未知项与 Go 技术选择 |
-| [场景研究](docs/SCENARIO_RESEARCH.md) | 十四个候选场景、飞书与企微权限边界 |
-| [国内应用接入](docs/INTEGRATIONS.md) | 12 个候选入口、已实现能力、配置与权限边界 |
-| [界面设计](docs/DESIGN.md) | 视觉基线与操作规则 |
-| [实施状态](docs/IMPLEMENTATION.md) | 设计到代码的完成范围与验证证据 |
-| [开源复用说明](docs/OPEN_SOURCE.md) | 已复用组件、开源设计参考与许可证 |
-| [v0.1 设计存档](docs/archive/v0.1/PRD.md) | 早期开发者平台方案，仅供历史参考 |
+| [PRD](docs/PRD.md) | 国内个人生活助理需求与交付范围 |
+| [架构](docs/ARCHITECTURE.md) | Go 持久运行、权限、费用与凭据合同 |
+| [对标功能状态](docs/PARITY.md) | dots 的公开能力、Nemi 已实现项及尚待交付项 |
+| [国内应用接入](docs/INTEGRATIONS.md) | 平台配置、具体场景与授权方法 |
+| [实施状态](docs/IMPLEMENTATION.md) | 验收证据与实际边界 |
+| [界面设计](docs/DESIGN.md) | 视觉与操作规则 |
+| [开源复用](docs/OPEN_SOURCE.md) | Temporal、飞书 SDK、日历组件与许可证 |
 
-品牌名 **Nemi / 妮米** 已用于本项目；商标及域名尚未核验。
+当前登录仍采用邀请口令与单个人空间；公开多用户身份、微信小程序、手机通知、语音、云端浏览器、通用工具循环和文件处理尚待开发。本站提醒需要打开页面查看。品牌名 Nemi / 妮米的商标和域名尚未核验。

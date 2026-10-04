@@ -14,12 +14,16 @@ import {
   X,
 } from "lucide-react";
 import { api, Matter } from "@/lib/api";
+import { BotSettings } from "@/components/bot-settings";
+import { FeishuDocuments } from "@/components/feishu-documents";
 
 type Channel = {
   id: string;
   name: string;
   label: string;
   state: "configured" | "invalid" | "unconfigured";
+  revision?: number;
+  verified_at?: string | null;
 };
 type App = {
   id: string;
@@ -69,10 +73,10 @@ const apps: App[] = [
     color: "#4567a0",
     category: "work",
     kind: "bot",
-    summary: "向选定群发送事项清单",
-    scenario: "把准备清单、材料安排或跟进事项发送到配置好的飞书群。",
+    summary: "读取文档，发送事项清单",
+    scenario: "导入已授权的文档资料，或把准备清单与跟进事项发到选定群。",
     boundary:
-      "当前仅支持群机器人发送文字；读取消息、文档、日历与双向对话仍待接入。",
+      "文档读取需独立配置并授权自建应用；群机器人只发送文字。聊天、日历与双向对话仍待接入。",
     url: "https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot",
   },
   {
@@ -336,7 +340,7 @@ function MessageForm({
     try {
       const result = await api<{ status: string }>(
         `/connections/${channel.id}/messages`,
-        { text, confirmed },
+        { text, confirmed, config_revision: channel.revision || 0 },
         "POST",
         key.current,
       );
@@ -353,8 +357,7 @@ function MessageForm({
       <div className="app-setup">
         <h3>先设置接收群</h3>
         <p>
-          在目标群创建自定义机器人，由本地管理员配置 Webhook
-          和接收群名称后重启服务。钉钉还需加签密钥。
+          在目标群创建自定义机器人，填写下方配置即可使用。钉钉需启用加签安全设置。
         </p>
         <p>配置完成后，这里会显示接收群。当前未向任何平台发送消息。</p>
       </div>
@@ -370,6 +373,17 @@ function MessageForm({
       </div>
       {!status && (
         <>
+          <button
+            className="text-button"
+            disabled={busy}
+            onClick={() =>
+              change(
+                "Nemi 应用连接检查：如果你在目标群看到这条消息，说明发送通道已经连通。",
+              )
+            }
+          >
+            填写联调消息
+          </button>
           <label>
             从事项填写（可选）
             <select
@@ -466,7 +480,13 @@ function MessageForm({
   );
 }
 
-export function ConnectionsPanel({ matters }: { matters: Matter[] }) {
+export function ConnectionsPanel({
+  matters,
+  onImported,
+}: {
+  matters: Matter[];
+  onImported?: (id: string) => Promise<void>;
+}) {
   const [channels, setChannels] = useState<Channel[] | null>(null),
     [error, setError] = useState(""),
     [query, setQuery] = useState(""),
@@ -490,7 +510,7 @@ export function ConnectionsPanel({ matters }: { matters: Matter[] }) {
     if (a.kind === "planned") return "规划中";
     if (a.kind !== "bot") return "可使用";
     const c = channels?.find((x) => x.id === a.id);
-    return c ? stateLabels[c.state] : "加载中";
+    return c ? (c.verified_at ? "发送已验证" : stateLabels[c.state]) : "加载中";
   }
   const visible = apps.filter(
     (a) =>
@@ -595,13 +615,22 @@ export function ConnectionsPanel({ matters }: { matters: Matter[] }) {
           {app.kind === "calendar" && <CalendarExport matters={matters} />}{" "}
           {app.kind === "bot" &&
             (channels ? (
-              <MessageForm
-                channel={channels.find((c) => c.id === app.id)!}
-                matters={matters}
-              />
+              <>
+                <BotSettings
+                  key={`${app.id}-settings-${channels.find((c) => c.id === app.id)?.revision || 0}`}
+                  channel={channels.find((c) => c.id === app.id)!}
+                  onChanged={load}
+                />
+                <MessageForm
+                  key={`${app.id}-${channels.find((c) => c.id === app.id)?.revision || 0}`}
+                  channel={channels.find((c) => c.id === app.id)!}
+                  matters={matters}
+                />
+              </>
             ) : (
               <p className="muted">正在读取配置…</p>
             ))}
+          {app.id === "feishu" && <FeishuDocuments onImported={onImported} />}
           {app.kind === "planned" && (
             <div className="app-setup">
               <h3>接入计划</h3>

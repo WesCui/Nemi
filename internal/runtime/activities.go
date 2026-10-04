@@ -7,16 +7,26 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"nemi/internal/model"
 	"nemi/internal/store"
+	"nemi/internal/vault"
+	"strings"
 	"time"
 )
 
 type Activities struct {
 	Store   *store.Store
 	Gateway *model.Gateway
+	Vault   *vault.Vault
 }
 
 func (a *Activities) Admit(ctx context.Context, r store.Ref) (Admission, error) {
-	in, e := a.Store.AdmitRun(ctx, r, a.Gateway.Reserve)
+	g, e := model.Resolve(ctx, a.Store, a.Vault, a.Gateway, r)
+	if e != nil {
+		if strings.HasPrefix(e.Error(), "MODEL_") {
+			return Admission{Done: true}, a.Store.FailRun(ctx, r, e.Error(), 0, 0, 0)
+		}
+		return Admission{}, e
+	}
+	in, e := a.Store.AdmitRun(ctx, r, g.Reserve)
 	if e != nil {
 		if e.Error() == "RUN_BUDGET_EXCEEDED" || e.Error() == "DAILY_BUDGET_EXCEEDED" || e.Error() == "MODEL_OUTCOME_UNKNOWN" {
 			if err := a.Store.FailRun(ctx, r, e.Error(), 0, 0, 0); err != nil {
@@ -29,10 +39,17 @@ func (a *Activities) Admit(ctx context.Context, r store.Ref) (Admission, error) 
 	return Admission{in.Ready, in.Done}, nil
 }
 func (a *Activities) Generate(ctx context.Context, r store.Ref) error {
-	in, e := a.Store.ClaimModel(ctx, r, a.Gateway.Profile())
+	g, e := model.Resolve(ctx, a.Store, a.Vault, a.Gateway, r)
 	if e != nil {
-		if e.Error() == "MODEL_CONFIG_CHANGED" {
-			return a.Store.FailRun(ctx, r, "MODEL_CONFIG_CHANGED", 0, 0, 0)
+		if strings.HasPrefix(e.Error(), "MODEL_") {
+			return a.Store.FailRun(ctx, r, e.Error(), 0, 0, 0)
+		}
+		return e
+	}
+	in, e := a.Store.ClaimModel(ctx, r, g.Profile())
+	if e != nil {
+		if e.Error() == "MODEL_CONFIG_CHANGED" || e.Error() == "MODEL_CONFIG_REVOKED" {
+			return a.Store.FailRun(ctx, r, e.Error(), 0, 0, 0)
 		}
 		return temporal.NewNonRetryableApplicationError("model attempt unavailable", "UNKNOWN", e)
 	}
@@ -53,15 +70,15 @@ func (a *Activities) Generate(ctx context.Context, r store.Ref) error {
 			}
 		}
 	}()
-	out, e := a.Gateway.Generate(ctx, in.Title, in.Source)
-	cost := a.Gateway.Cost(out.InputTokens, out.OutputTokens)
+	out, e := g.Generate(ctx, in.Title, in.Source)
+	cost := g.Cost(out.InputTokens, out.OutputTokens)
 	if e != nil {
 		if dbErr := a.Store.FailRun(ctx, r, e.Error(), out.InputTokens, out.OutputTokens, cost); dbErr != nil {
 			return dbErr
 		}
 		return nil
 	}
-	if cost > in.Reservation && a.Gateway.Mode() != "demo" {
+	if cost > in.Reservation && g.Mode() != "demo" {
 		if e = a.Store.FailRun(ctx, r, "USAGE_EXCEEDS_RESERVATION", out.InputTokens, out.OutputTokens, cost); e != nil {
 			return e
 		}
