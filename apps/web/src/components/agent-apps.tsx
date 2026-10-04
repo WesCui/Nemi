@@ -8,7 +8,7 @@ import { FeishuDocuments } from "@/components/feishu-documents";
 export type AppAction = { id: string; kind: string; status: string; dispatch_status?: string; payload: { title: string; app_id?: string; channel_id?: string; recipient_label?: string; text?: string } };
 type Channel = { id: string; name: string; label: string; state: string; revision?: number; verified_at?: string | null };
 
-function ConnectionCard({ action, onChanged, onContinue, canContinue }: { action: AppAction; onChanged: () => Promise<void>; onContinue: () => Promise<void>; canContinue: boolean }) {
+function ConnectionCard({ action, onChanged, onContinue, canContinue, showContinue }: { action: AppAction; onChanged: () => Promise<void>; onContinue: () => Promise<void>; canContinue: boolean; showContinue: boolean }) {
   const [channel, setChannel] = useState<Channel | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -41,7 +41,7 @@ function ConnectionCard({ action, onChanged, onContinue, canContinue }: { action
       <BotSettings key={channel.revision || 0} channel={channel} onChanged={async () => { const c = await load(); if (c?.state === "configured") await complete(); }} />
       {channel.state === "configured" && <button type="button" className="primary" disabled={busy} onClick={() => void complete()}>完成连接，继续对话</button>}
     </> : <p>正在读取连接信息…</p>)}
-    {action.status === "APPROVED" && <><p>配置保存不代表平台权限已验证；实际结果会显示在对话中。</p><button type="button" className="primary" disabled={!canContinue} onClick={() => void onContinue()}>继续刚才的任务</button></>}
+    {action.status === "APPROVED" && <><p>配置保存不代表平台权限已验证；实际结果会显示在对话中。</p>{showContinue && <button type="button" className="primary" disabled={!canContinue} onClick={() => void onContinue()}>继续刚才的任务</button>}</>}
     {error && <p className="form-error" role="alert">{error}</p>}
     <small>凭据只在专用字段中加密保存，请勿发到聊天里。首次开通平台权限仍需你或管理员授权。</small>
   </aside>;
@@ -72,6 +72,6 @@ function MessageCard({ action, onChanged }: { action: AppAction; onChanged: () =
   </aside>;
 }
 
-export function AgentAppAction({ action, onChanged, onContinue, canContinue }: { action: AppAction; onChanged: () => Promise<void>; onContinue: () => Promise<void>; canContinue: boolean }) {
-  return action.kind === "connect_app" ? <ConnectionCard action={action} onChanged={onChanged} onContinue={onContinue} canContinue={canContinue} /> : <MessageCard action={action} onChanged={onChanged} />;
+export function AgentAppAction({ action, onChanged, onContinue, canContinue, showContinue = true }: { action: AppAction; onChanged: () => Promise<void>; onContinue: () => Promise<void>; canContinue: boolean; showContinue?: boolean }) {
+  return action.kind === "connect_app" ? <ConnectionCard action={action} onChanged={onChanged} onContinue={onContinue} canContinue={canContinue} showContinue={showContinue} /> : <MessageCard action={action} onChanged={onChanged} />;
 }

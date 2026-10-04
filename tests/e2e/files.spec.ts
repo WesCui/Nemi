@@ -1,9 +1,7 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./authenticated";
 
 test("files stay in chat through upload, exact statistics, Excel delivery and reload", async ({ page }) => {
   await page.goto("/");
-  await page.getByLabel("邀请口令").fill(process.env.NEMI_TEST_INVITE_CODE!);
-  await page.getByRole("button", { name: "进入我的空间" }).click();
   await expect(page.getByRole("heading", { name: "有什么想交给妮米？" })).toBeVisible();
   await page.getByRole("button", { name: "新对话", exact: true }).click();
   await page.getByLabel("上传对话附件").setInputFiles({ name: "生活账单.csv", mimeType: "text/csv", buffer: Buffer.from("类型,金额\n餐饮,0.1\n餐饮,0.2\n交通,10\n") });

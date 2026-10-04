@@ -2292,4 +2292,9 @@ textarea::placeholder {
 .agent-diff p { padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); font-size: 12px !important; max-height: 190px; overflow: auto; }
 .agent-diff p + p { background: #eef3ec; border-color: #cbd8cc; }
 .agent-data-note { color: var(--muted); font-size: 11px !important; margin-top: 14px !important; }
+.agent-continuation { margin-top: 20px; padding: 20px 0 4px; border-top: 1px solid var(--line); }
+.agent-continuation h3 { margin: 8px 0; font-size: 16px; font-weight: 500; }
+.agent-continuation p { font-size: 13px !important; overflow-wrap: anywhere; }
+.agent-continuation small { display: block; margin: 10px 0; font-size: 11px; line-height: 1.8; color: var(--muted); }
+.chat-resume-event { font-size: 11px; color: var(--muted); margin: 20px 10px 8px; padding-left: 10px; border-left: 2px solid var(--accent); }
 @media (max-width:620px) { .agent-diff-head, .agent-diff > div { gap: 8px; } .agent-diff p { padding: 8px; } }

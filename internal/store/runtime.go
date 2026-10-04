@@ -175,6 +175,11 @@ func (s *Store) FinishRun(ctx context.Context, r Ref, plan domain.Plan, input, o
 	if e != nil {
 		return e
 	}
+	if kind == "chat" {
+		if e = wakeContinuation(ctx, tx, r); e != nil {
+			return e
+		}
+	}
 	if e = event(ctx, tx, r.Workspace, "run.succeeded", r.ID); e != nil {
 		return e
 	}
@@ -202,6 +207,9 @@ func failRunTx(ctx context.Context, tx pgx.Tx, r Ref, code string, input, output
 		return e
 	}
 	if tag.RowsAffected() > 0 {
+		if e = failContinuation(ctx, tx, r, code); e != nil {
+			return e
+		}
 		if e = event(ctx, tx, r.Workspace, "run.failed", r.ID); e != nil {
 			return e
 		}

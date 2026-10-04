@@ -21,6 +21,10 @@ type Activities struct {
 	Files   *files.Service
 }
 
+func (a *Activities) AdvanceContinuation(ctx context.Context, r store.Ref) (store.ContinuationCheck, error) {
+	return a.Store.AdvanceContinuation(ctx, r)
+}
+
 func (a *Activities) Admit(ctx context.Context, r store.Ref) (Admission, error) {
 	g, e := model.Resolve(ctx, a.Store, a.Vault, a.Gateway, r)
 	if e != nil {

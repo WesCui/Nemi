@@ -58,10 +58,10 @@ func (s *Store) Migrate(ctx context.Context) error {
 		if e = tx.QueryRow(ctx, "SELECT COALESCE(max(version),0) FROM schema_versions").Scan(&version); e != nil {
 			return e
 		}
-		if version > 10 {
+		if version > 11 {
 			return errors.New("database schema is newer than this runtime")
 		}
-		if version == 10 {
+		if version == 11 {
 			return tx.Commit(ctx)
 		}
 	}

@@ -33,6 +33,7 @@ type Plan struct {
 	Items   []string `json:"items"`
 }
 type ChatMessage struct {
+	Origin   string `json:"origin,omitempty"`
 	Role     string `json:"role"`
 	Content  string `json:"content"`
 	Position int    `json:"position,omitempty"`
@@ -41,10 +42,18 @@ type ChatMessage struct {
 // ChatContext is an immutable run snapshot. Summary only covers successful
 // turns through SummaryThrough; History contains every later successful turn.
 type ChatContext struct {
-	Summary        string        `json:"summary"`
-	SummaryThrough int           `json:"summary_through"`
-	CompactThrough int           `json:"compact_through"`
-	History        []ChatMessage `json:"history"`
+	Summary        string         `json:"summary"`
+	SummaryThrough int            `json:"summary_through"`
+	CompactThrough int            `json:"compact_through"`
+	History        []ChatMessage  `json:"history"`
+	Resume         *ResumeContext `json:"resume,omitempty"`
+}
+type ResumeContext struct {
+	Parent string `json:"parent_run"`
+	Root   string `json:"root_run"`
+	Depth  int    `json:"depth"`
+	Goal   string `json:"goal"`
+	Next   string `json:"next_step"`
 }
 type TaskPlan struct {
 	Goal  string         `json:"goal"`

@@ -1,9 +1,7 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./authenticated";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await page.getByLabel("邀请口令").fill(process.env.NEMI_TEST_INVITE_CODE!);
-  await page.getByRole("button", { name: "进入我的空间" }).click();
   await expect(page.getByRole("heading", { name: "有什么想交给妮米？" })).toBeVisible();
 });
 test("homepage personal models persist without revealing credentials or invoking providers", async ({ page }) => {

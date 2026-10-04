@@ -125,3 +125,18 @@ INSERT INTO schema_versions(version) VALUES(9) ON CONFLICT DO NOTHING;
 ALTER TABLE matters DROP CONSTRAINT IF EXISTS matters_status_check;
 ALTER TABLE matters ADD CONSTRAINT matters_status_check CHECK(status IN ('ACTIVE','COMPLETED','ARCHIVED'));
 INSERT INTO schema_versions(version) VALUES(10) ON CONFLICT DO NOTHING;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS continuation_root text NOT NULL DEFAULT '';
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS continuation_depth int NOT NULL DEFAULT 0 CHECK(continuation_depth BETWEEN 0 AND 8);
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS continuation_cancelled boolean NOT NULL DEFAULT false;
+ALTER TABLE chat_turns ADD COLUMN IF NOT EXISTS origin text NOT NULL DEFAULT 'user' CHECK(origin IN ('user','continuation'));
+CREATE TABLE IF NOT EXISTS agent_continuations (
+ workspace_id text NOT NULL, run_id text NOT NULL, root_id text NOT NULL, conversation_id text NOT NULL,
+ goal text NOT NULL, next_step text NOT NULL, action_ids jsonb NOT NULL,
+ status text NOT NULL DEFAULT 'WAITING' CHECK(status IN ('WAITING','STARTED','CANCELLED','EXPIRED','BLOCKED')),
+ authorized boolean NOT NULL DEFAULT false, next_run_id text NOT NULL DEFAULT '', error_code text NOT NULL DEFAULT '',
+ wake_revision int NOT NULL DEFAULT 0, expires_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(workspace_id,run_id), FOREIGN KEY(workspace_id,run_id) REFERENCES runs(workspace_id,id),
+ FOREIGN KEY(workspace_id,root_id) REFERENCES runs(workspace_id,id), FOREIGN KEY(workspace_id,conversation_id) REFERENCES conversations(workspace_id,id)
+);
+CREATE INDEX IF NOT EXISTS waiting_continuations ON agent_continuations(workspace_id,conversation_id) WHERE status='WAITING';
+INSERT INTO schema_versions(version) VALUES(11) ON CONFLICT DO NOTHING;

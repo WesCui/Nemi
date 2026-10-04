@@ -58,8 +58,32 @@ func claimDispatchTx(ctx context.Context, tx pgx.Tx, w, key, id string, body []b
 	return "SENDING", true, nil
 }
 func (s *Store) SettleDispatch(ctx context.Context, w, key, status string) error {
-	_, e := s.Pool.Exec(ctx, "UPDATE connector_dispatches SET status=$3 WHERE workspace_id=$1 AND key=$2 AND status='SENDING'", w, key, status)
-	return e
+	tx, e := s.Pool.Begin(ctx)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback(ctx)
+	tag, e := tx.Exec(ctx, "UPDATE connector_dispatches SET status=$3 WHERE workspace_id=$1 AND key=$2 AND status='SENDING'", w, key, status)
+	if e != nil {
+		return e
+	}
+	if tag.RowsAffected() == 0 {
+		return tx.Commit(ctx)
+	}
+	var parent string
+	e = tx.QueryRow(ctx, "SELECT run_id FROM agent_actions WHERE workspace_id=$1 AND id=$2", w, key).Scan(&parent)
+	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+		return e
+	}
+	if e == nil {
+		if e = wakeContinuation(ctx, tx, Ref{w, parent}); e != nil {
+			return e
+		}
+		if e = event(ctx, tx, w, "agent.message_receipt", key); e != nil {
+			return e
+		}
+	}
+	return tx.Commit(ctx)
 }
 func (s *Store) CalendarTime(ctx context.Context, w, id string) (string, time.Time, error) {
 	var title string

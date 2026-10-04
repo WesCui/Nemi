@@ -19,7 +19,7 @@ func (s *Store) AgentActive(ctx context.Context, r Ref) (bool, error) {
 
 // Link authorization uses original user text, never an LLM-generated summary.
 func (s *Store) AgentUserMessages(ctx context.Context, r Ref) ([]domain.ChatMessage, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT t.user_text FROM chat_turns t JOIN chat_turns current ON current.workspace_id=t.workspace_id AND current.conversation_id=t.conversation_id WHERE current.workspace_id=$1 AND current.run_id=$2 AND t.position<=current.position ORDER BY t.position`, r.Workspace, r.ID)
+	rows, err := s.Pool.Query(ctx, `SELECT t.user_text FROM chat_turns t JOIN chat_turns current ON current.workspace_id=t.workspace_id AND current.conversation_id=t.conversation_id WHERE current.workspace_id=$1 AND current.run_id=$2 AND t.position<=current.position AND t.origin='user' ORDER BY t.position`, r.Workspace, r.ID)
 	if err != nil {
 		return nil, err
 	}

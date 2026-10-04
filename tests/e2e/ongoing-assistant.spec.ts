@@ -1,13 +1,9 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./authenticated";
 
 test.beforeEach(async ({ page }, info) => {
   if (info.title.includes("mobile"))
     await page.setViewportSize({ width: 390, height: 844 });
-  const code = process.env.NEMI_TEST_INVITE_CODE;
-  if (!code) throw new Error("NEMI_TEST_INVITE_CODE required");
   await page.goto("/");
-  await page.getByLabel("邀请口令").fill(code);
-  await page.getByRole("button", { name: "进入我的空间" }).click();
   await expect(page.getByRole("heading", { name: "有什么想交给妮米？" })).toBeVisible();
 });
 

@@ -17,17 +17,19 @@ type Conversation struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 type ChatTurn struct {
-	Files     []domain.File        `json:"files"`
-	Plan      *domain.TaskPlan     `json:"plan,omitempty"`
-	Steps     []domain.AgentStep   `json:"steps"`
-	Actions   []domain.AgentAction `json:"actions"`
-	RunID     string               `json:"run_id"`
-	Text      string               `json:"text"`
-	Reply     string               `json:"reply"`
-	Status    string               `json:"status"`
-	Error     string               `json:"error"`
-	Model     string               `json:"model"`
-	CreatedAt time.Time            `json:"created_at"`
+	Origin       string               `json:"origin"`
+	Continuation *Continuation        `json:"continuation,omitempty"`
+	Files        []domain.File        `json:"files"`
+	Plan         *domain.TaskPlan     `json:"plan,omitempty"`
+	Steps        []domain.AgentStep   `json:"steps"`
+	Actions      []domain.AgentAction `json:"actions"`
+	RunID        string               `json:"run_id"`
+	Text         string               `json:"text"`
+	Reply        string               `json:"reply"`
+	Status       string               `json:"status"`
+	Error        string               `json:"error"`
+	Model        string               `json:"model"`
+	CreatedAt    time.Time            `json:"created_at"`
 }
 type ChatDetail struct {
 	SummaryThrough int          `json:"summary_through"`
@@ -66,7 +68,7 @@ func (s *Store) Conversation(ctx context.Context, w, id string) (ChatDetail, err
 		return d, err
 	}
 	rows, err := tx.Query(ctx, `SELECT t.run_id,t.user_text,COALESCE(r.result->>'summary',''),r.status,r.error_code,COALESCE(m.label,'服务端模型'),t.created_at,r.task_plan
- FROM chat_turns t JOIN runs r ON r.workspace_id=t.workspace_id AND r.id=t.run_id
+ ,t.origin FROM chat_turns t JOIN runs r ON r.workspace_id=t.workspace_id AND r.id=t.run_id
  LEFT JOIN personal_models m ON m.workspace_id=r.workspace_id AND m.id=r.model_config_id
  WHERE t.workspace_id=$1 AND t.conversation_id=$2 ORDER BY t.position`, w, id)
 	if err != nil {
@@ -75,7 +77,7 @@ func (s *Store) Conversation(ctx context.Context, w, id string) (ChatDetail, err
 	defer rows.Close()
 	for rows.Next() {
 		t := ChatTurn{Steps: []domain.AgentStep{}, Actions: []domain.AgentAction{}}
-		if err = rows.Scan(&t.RunID, &t.Text, &t.Reply, &t.Status, &t.Error, &t.Model, &t.CreatedAt, &t.Plan); err != nil {
+		if err = rows.Scan(&t.RunID, &t.Text, &t.Reply, &t.Status, &t.Error, &t.Model, &t.CreatedAt, &t.Plan, &t.Origin); err != nil {
 			return d, err
 		}
 		d.Turns = append(d.Turns, t)
@@ -88,6 +90,26 @@ func (s *Store) Conversation(ctx context.Context, w, id string) (ChatDetail, err
 	index := map[string]int{}
 	for i, t := range d.Turns {
 		index[t.RunID] = i
+	}
+	continued, err := tx.Query(ctx, continuationSelect+" WHERE workspace_id=$1 AND conversation_id=$2 ORDER BY created_at", w, id)
+	if err != nil {
+		return d, err
+	}
+	for continued.Next() {
+		c, e := scanContinuation(continued)
+		if e != nil {
+			continued.Close()
+			return d, e
+		}
+		i, ok := index[c.RunID]
+		if ok {
+			d.Turns[i].Continuation = &c
+		}
+	}
+	err = continued.Err()
+	continued.Close()
+	if err != nil {
+		return d, err
 	}
 	steps, err := tx.Query(ctx, `SELECT s.run_id,s.position,s.kind,s.name,s.status,s.error_code FROM agent_steps s JOIN chat_turns t ON t.workspace_id=s.workspace_id AND t.run_id=s.run_id WHERE t.workspace_id=$1 AND t.conversation_id=$2 ORDER BY t.position,s.position`, w, id)
 	if err != nil {
@@ -146,6 +168,13 @@ func (s *Store) Conversation(ctx context.Context, w, id string) (ChatDetail, err
 // A conversation turn and the immutable model/context snapshot commit with the
 // outbox. HTTP retries read the same run; only one turn can be active per chat.
 func (s *Store) CreateChatRun(ctx context.Context, tx pgx.Tx, w, conversation, text, mode, profile, modelID string, attachments ...[]string) (any, int, error) {
+	var files []string
+	if len(attachments) > 0 {
+		files = attachments[0]
+	}
+	return s.createChatRun(ctx, tx, w, conversation, text, mode, profile, modelID, files, nil)
+}
+func (s *Store) createChatRun(ctx context.Context, tx pgx.Tx, w, conversation, text, mode, profile, modelID string, attachments []string, resume *domain.ResumeContext) (any, int, error) {
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", w+":chat-admission"); err != nil {
 		return nil, 0, err
 	}
@@ -179,6 +208,13 @@ func (s *Store) CreateChatRun(ctx context.Context, tx pgx.Tx, w, conversation, t
 	} else if err != nil {
 		return nil, 0, err
 	}
+	if resume == nil {
+		// A new user message changes the conversation goal; old automatic work
+		// must not wake later against the superseded context.
+		if err := cancelConversationContinuations(ctx, tx, w, conversation); err != nil {
+			return nil, 0, err
+		}
+	}
 	var active bool
 	if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM runs WHERE workspace_id=$1 AND conversation_id=$2 AND status IN ('QUEUED','RUNNING'))", w, conversation).Scan(&active); err != nil {
 		return nil, 0, err
@@ -193,7 +229,7 @@ func (s *Store) CreateChatRun(ctx context.Context, tx pgx.Tx, w, conversation, t
 	if position > 200 {
 		return nil, 0, errors.New("CHAT_TURN_LIMIT")
 	}
-	rows, err := tx.Query(ctx, `SELECT t.position,t.user_text,r.result->>'summary' FROM chat_turns t JOIN runs r ON r.workspace_id=t.workspace_id AND r.id=t.run_id
+	rows, err := tx.Query(ctx, `SELECT t.position,t.user_text,r.result->>'summary',t.origin FROM chat_turns t JOIN runs r ON r.workspace_id=t.workspace_id AND r.id=t.run_id
  WHERE t.workspace_id=$1 AND t.conversation_id=$2 AND t.position>$3 AND r.status='SUCCEEDED' ORDER BY t.position`, w, conversation, checkpoint.SummaryThrough)
 	if err != nil {
 		return nil, 0, err
@@ -201,11 +237,12 @@ func (s *Store) CreateChatRun(ctx context.Context, tx pgx.Tx, w, conversation, t
 	for rows.Next() {
 		var p [2]string
 		var pos int
-		if err = rows.Scan(&pos, &p[0], &p[1]); err != nil {
+		var origin string
+		if err = rows.Scan(&pos, &p[0], &p[1], &origin); err != nil {
 			rows.Close()
 			return nil, 0, err
 		}
-		checkpoint.History = append(checkpoint.History, domain.ChatMessage{Role: "user", Content: p[0], Position: pos}, domain.ChatMessage{Role: "assistant", Content: p[1], Position: pos})
+		checkpoint.History = append(checkpoint.History, domain.ChatMessage{Role: "user", Content: p[0], Position: pos, Origin: origin}, domain.ChatMessage{Role: "assistant", Content: p[1], Position: pos})
 	}
 	err = rows.Err()
 	rows.Close()
@@ -213,6 +250,9 @@ func (s *Store) CreateChatRun(ctx context.Context, tx pgx.Tx, w, conversation, t
 		return nil, 0, err
 	}
 	checkpoint.History = append(checkpoint.History, domain.ChatMessage{Role: "user", Content: text, Position: position})
+	if resume != nil {
+		checkpoint.History[len(checkpoint.History)-1].Origin = "continuation"
+	}
 	all, _ := json.Marshal(checkpoint.History)
 	if len(checkpoint.History) > 9 || len(all)+len(checkpoint.Summary) > 10000 {
 		// Keep two recent pairs when they fit. Larger pairs are included in the
@@ -233,6 +273,7 @@ func (s *Store) CreateChatRun(ctx context.Context, tx pgx.Tx, w, conversation, t
 			checkpoint.CompactThrough = checkpoint.History[prefix-1].Position
 		}
 	}
+	checkpoint.Resume = resume
 	snapshot, _ := json.Marshal(checkpoint)
 	if len(snapshot) > 40000 {
 		return nil, 0, errors.New("CHAT_CONTEXT_TOO_LARGE")
@@ -243,11 +284,18 @@ func (s *Store) CreateChatRun(ctx context.Context, tx pgx.Tx, w, conversation, t
 	if err != nil {
 		return nil, 0, err
 	}
-	if _, err = tx.Exec(ctx, "INSERT INTO chat_turns(workspace_id,conversation_id,run_id,position,user_text) VALUES($1,$2,$3,$4,$5)", w, conversation, id, position, text); err != nil {
+	origin := "user"
+	if resume != nil {
+		origin = "continuation"
+		if _, err = tx.Exec(ctx, "UPDATE runs SET continuation_root=$3,continuation_depth=$4 WHERE workspace_id=$1 AND id=$2", w, id, resume.Root, resume.Depth); err != nil {
+			return nil, 0, err
+		}
+	}
+	if _, err = tx.Exec(ctx, "INSERT INTO chat_turns(workspace_id,conversation_id,run_id,position,user_text,origin) VALUES($1,$2,$3,$4,$5,$6)", w, conversation, id, position, text, origin); err != nil {
 		return nil, 0, err
 	}
 	if len(attachments) > 0 {
-		if err = bindChatFiles(ctx, tx, w, id, attachments[0]); err != nil {
+		if err = bindChatFiles(ctx, tx, w, id, attachments); err != nil {
 			return nil, 0, err
 		}
 	}

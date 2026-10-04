@@ -13,6 +13,9 @@ import (
 )
 
 func WorkflowID(o store.Outbox) string {
+	if o.Kind == "continuation" || o.Kind == "continuation_signal" {
+		return "continuation/" + o.Workspace + "/" + o.Subject
+	}
 	if o.Kind == "run" {
 		return "run/" + o.Workspace + "/" + o.Subject
 	}
@@ -31,9 +34,24 @@ func dispatchTo(ctx context.Context, c client.Client, o store.Outbox, runQueue, 
 		}
 		return e
 	}
+	if o.Kind == "continuation_signal" {
+		e := c.SignalWorkflow(ctx, id, "", ContinuationSignal, o.Revision)
+		var missing *serviceerror.NotFound
+		if errors.As(e, &missing) {
+			d, describeErr := c.DescribeWorkflowExecution(ctx, id, "")
+			if describeErr == nil && d.WorkflowExecutionInfo.Status != enums.WORKFLOW_EXECUTION_STATUS_RUNNING {
+				return nil
+			}
+		}
+		return e
+	}
 	opt := client.StartWorkflowOptions{ID: id, WorkflowIDReusePolicy: enums.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE, WorkflowExecutionTimeout: 7 * 24 * time.Hour}
 	var e error
-	if o.Kind == "run" {
+	if o.Kind == "continuation" {
+		opt.TaskQueue = runQueue
+		opt.WorkflowExecutionTimeout = 0
+		_, e = c.ExecuteWorkflow(ctx, opt, ContinuationWorkflow, store.Ref{Workspace: o.Workspace, ID: o.Subject})
+	} else if o.Kind == "run" {
 		opt.TaskQueue = runQueue
 		_, e = c.ExecuteWorkflow(ctx, opt, RunWorkflow, store.Ref{Workspace: o.Workspace, ID: o.Subject})
 	} else {

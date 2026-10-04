@@ -89,6 +89,10 @@ func TestE2EWorkerService(t *testing.T) {
 			if dataErr != nil {
 				return nil, dataErr
 			}
+			continuationName, continuationArgs, continuationContent, continuationWorkflow, continuationErr := continuationFixture(userText, body.Messages[len(body.Messages)-1].Role, last)
+			if continuationErr != nil {
+				return nil, continuationErr
+			}
 			fileWorkflow := false
 			for _, m := range body.Messages {
 				if m.Role == "user" && m.Content == "统计这份账单并生成Excel汇总" {
@@ -105,7 +109,12 @@ func TestE2EWorkerService(t *testing.T) {
 			if strings.Contains(last, "触发认证失败") {
 				return &http.Response{StatusCode: 401, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"fixture authentication failed"}}`))}, nil
 			}
-			if dataWorkflow {
+			if continuationWorkflow {
+				content = continuationContent
+				if continuationName != "" {
+					toolCall = map[string]any{"id": "fixture_continuation_" + continuationName, "type": "function", "function": map[string]string{"name": continuationName, "arguments": continuationArgs}}
+				}
+			} else if dataWorkflow {
 				content = dataContent
 				if dataName != "" {
 					toolCall = map[string]any{"id": "fixture_data_" + dataName, "type": "function", "function": map[string]string{"name": dataName, "arguments": dataArgs}}
@@ -171,7 +180,7 @@ func TestE2EWorkerService(t *testing.T) {
 			} else {
 				content = "收到：" + last
 			}
-			if !fileWorkflow && !dataWorkflow && len(body.Messages) > 2 && body.Messages[len(body.Messages)-1].Role != "tool" {
+			if !fileWorkflow && !dataWorkflow && !continuationWorkflow && len(body.Messages) > 2 && body.Messages[len(body.Messages)-1].Role != "tool" {
 				content += "；前文：" + body.Messages[1].Content
 			}
 		}
@@ -189,10 +198,69 @@ func TestE2EWorkerService(t *testing.T) {
 	defer engine.Close()
 	w := worker.New(engine, c.RunQueue, worker.Options{})
 	w.RegisterWorkflow(RunWorkflow)
+	w.RegisterWorkflow(ContinuationWorkflow)
 	w.RegisterActivity(&Activities{Store: s, Gateway: g, Vault: v, Files: fs})
 	if err = w.Run(worker.InterruptCh()); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func continuationFixture(user, role, last string) (name, args, content string, handled bool, err error) {
+	prefix := "先保存事项再整理报告："
+	title := strings.TrimPrefix(user, prefix)
+	resume := false
+	if !strings.HasPrefix(user, prefix) {
+		marker := "继续既定目标：保存事项："
+		index := strings.Index(user, marker)
+		if index < 0 {
+			return
+		}
+		resume = true
+		title = strings.Split(user[index+len(marker):], "\n")[0]
+	}
+	handled = true
+	encode := func(v any) string { b, _ := json.Marshal(v); return string(b) }
+	if role != "tool" {
+		if resume {
+			name = "list_matters"
+			args = encode(map[string]string{"query": title})
+		} else {
+			name = "propose_matter"
+			args = encode(map[string]string{"title": title, "category": "life", "source": "请在保存后核对资料并整理报告"})
+		}
+		return
+	}
+	var list []map[string]any
+	if json.Unmarshal([]byte(last), &list) == nil {
+		if len(list) != 1 {
+			err = fmt.Errorf("expected saved matter")
+			return
+		}
+		name = "get_matter"
+		args = encode(map[string]any{"id": list[0]["id"]})
+		return
+	}
+	var value map[string]any
+	if json.Unmarshal([]byte(last), &value) != nil {
+		err = fmt.Errorf("invalid continuation output")
+		return
+	}
+	if !resume && value["status"] == "PENDING" {
+		name = "await_actions"
+		args = encode(store.WaitForActions{Goal: "保存事项：" + title, Next: "核对刚才保存的事项，然后生成文字报告", Actions: []string{value["id"].(string)}})
+		return
+	}
+	if resume && value["title"] != nil {
+		name = "create_artifact"
+		args = encode(map[string]string{"name": title + ".md", "content": "# " + value["title"].(string) + "\n\n已保存状态：" + value["status"].(string) + "\n\n" + value["source"].(string)})
+		return
+	}
+	if resume && value["kind"] == "artifact" {
+		content = "已核对保存结果，并生成文字报告。"
+		return
+	}
+	err = fmt.Errorf("continuation workflow did not receive expected state")
+	return
 }
 
 // The test provider derives IDs and revisions from actual tool responses. This

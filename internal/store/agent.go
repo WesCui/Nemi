@@ -126,10 +126,28 @@ func (s *Store) Action(ctx context.Context, tx pgx.Tx, w, id string) (domain.Age
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = domain.ErrNotFound
 	}
+	if err == nil {
+		// Keep run -> registration -> continuation -> business-event order.
+		// Locking registration also covers approval racing the first wait insert.
+		_, err = tx.Exec(ctx, "SELECT id FROM runs WHERE workspace_id=$1 AND id=$2 FOR SHARE", w, a.RunID)
+	}
+	if err == nil {
+		_, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,5))", w+":"+a.RunID)
+	}
+	if err == nil {
+		_, err = tx.Exec(ctx, "SELECT run_id FROM agent_continuations WHERE workspace_id=$1 AND run_id=$2 FOR UPDATE", w, a.RunID)
+	}
 	return a, err
 }
 func (s *Store) DecideAction(ctx context.Context, tx pgx.Tx, w, id, status, result string) error {
 	_, err := tx.Exec(ctx, "UPDATE agent_actions SET status=$3,result_id=$4 WHERE workspace_id=$1 AND id=$2 AND status='PENDING'", w, id, status, result)
+	if err == nil {
+		var parent string
+		err = tx.QueryRow(ctx, "SELECT run_id FROM agent_actions WHERE workspace_id=$1 AND id=$2", w, id).Scan(&parent)
+		if err == nil {
+			err = wakeContinuation(ctx, tx, Ref{w, parent})
+		}
+	}
 	if err == nil {
 		err = event(ctx, tx, w, "agent.action_decided", id)
 	}

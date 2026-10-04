@@ -17,6 +17,7 @@ func main() {
 	defer t.Close()
 	w := worker.New(t, c.RunQueue, worker.Options{MaxConcurrentActivityExecutionSize: 5})
 	w.RegisterWorkflow(runtime.RunWorkflow)
+	w.RegisterWorkflow(runtime.ContinuationWorkflow)
 	v, e := vault.Open(c.VaultKey, c.VaultPath)
 	if e != nil {
 		slog.Error("credential vault unavailable")

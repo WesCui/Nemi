@@ -1,10 +1,12 @@
 # 国内生活助理 Agent Cloud Runtime 技术架构
 
-版本：v0.9 · 日期：2026-10-05 · 状态：目标架构；代码实际交付与验证见 [实施状态](./IMPLEMENTATION.md)，未交付能力见 [完整目标跟踪](./GOAL_AUDIT.md)。
+版本：v0.10 · 日期：2026-10-05 · 状态：目标架构；代码实际交付与验证见 [实施状态](./IMPLEMENTATION.md)，未交付能力见 [完整目标跟踪](./GOAL_AUDIT.md)。
 
 v0.8 的资料层已实现：API 流式上传，独立 file-parser 提取被动文档，schema v9 保存元数据与聊天绑定，AES-256-GCM 加密本地/S3 对象，Agent 分页读取和精确统计，成果持久保存后内部预览与下载。公共网页工具使用受控 Go HTTP 与 Readability；不是云端浏览器。详细限制、对象提交不确定时的处理和解析隔离边界见 [资料合同](./FILES.md)。
 
 v0.9 数据修改已实现：schema v10 扩展 ARCHIVED，Agent 工具固定事项/提醒/偏好的前后快照和版本；确认接口依次锁定提案、事项及提醒或偏好，检查当前版本与日期，同事务保存修改、Outbox和审批结果。清单按原始索引在服务端合并，保留未选条目；归档保留历史，偏好移除只影响记录。当前工具总数20、提示合同agent-v4，具体边界见[对话修改](./AGENT_ACTIONS.md)。
+
+v0.10 增加 schema v11 的 agent_continuations、运行链根与深度，以及续办事件来源。await_actions 保存模型生成的目标和下一步；用户允许原模型继续后，ContinuationWorkflow 等待已提交操作决策和回执，通过事务创建唯一后续运行。Workflow 只重试数据库操作，付费调用继续使用原 RunWorkflow 及步骤 claim。当前工具21项、提示合同agent-v5 / plan-v2；运行与续办行锁先于业务事件序号锁，防止审批与取消互锁。详见[确认后继续](./CONTINUATION.md)。
 
 配套见 [PRD](./PRD.md)、[dots 功能对标调研](./DOTS_BENCHMARK.md) 和 [使用场景与办公接入调研](./SCENARIO_RESEARCH.md)。原 FastAPI 方案保留于 [v0.1 存档](./archive/v0.1/ARCHITECTURE.md)。本文的接口、表和流程是本项目设计合同，不是 OpenAI dots 内部实现或已经运行的代码。
 
