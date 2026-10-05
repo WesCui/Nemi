@@ -87,6 +87,13 @@ type AgentMessage struct {
 	Recipient string `json:"recipient_label"`
 }
 
+type AgentConnection struct {
+	Title    string `json:"title"`
+	AppID    string `json:"app_id"`
+	Label    string `json:"connection_label"`
+	Revision int    `json:"config_revision"`
+}
+
 // Agent proposals cannot grant their own approval or choose a workspace.
 type AgentMatter struct {
 	Title      string     `json:"title"`

@@ -67,6 +67,7 @@ func (a *API) Handler() http.Handler {
 	m.Handle("POST /api/v1/chat/continuations/{id}/{decision}", a.auth(http.HandlerFunc(a.continuation)))
 	m.Handle("POST /api/v1/agent/actions/{id}/{decision}", a.auth(http.HandlerFunc(a.decideAgentAction)))
 	m.Handle("GET /api/v1/connections", a.auth(http.HandlerFunc(a.connections)))
+	m.Handle("GET /api/v1/applications", a.auth(http.HandlerFunc(a.applications)))
 	m.Handle("PUT /api/v1/connections/{id}", a.auth(http.HandlerFunc(a.saveConnection)))
 	m.Handle("GET /api/v1/models", a.auth(http.HandlerFunc(a.models)))
 	m.Handle("POST /api/v1/models", a.auth(http.HandlerFunc(a.saveModel)))

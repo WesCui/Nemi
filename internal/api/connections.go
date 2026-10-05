@@ -3,8 +3,8 @@ package api
 import (
 	"context"
 	"errors"
-	ics "github.com/arran4/golang-ical"
 	"github.com/jackc/pgx/v5"
+	"nemi/internal/calendar"
 	"nemi/internal/connectors"
 	"nemi/internal/domain"
 	"net/http"
@@ -110,16 +110,7 @@ func (a *API) calendar(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	cal := ics.NewCalendar()
-	cal.SetProductId("-//Nemi//Personal Calendar//ZH-CN")
-	cal.SetMethod(ics.MethodPublish)
-	event := cal.AddEvent(r.PathValue("id") + "@nemi.local")
-	event.SetDtStampTime(time.Now())
-	event.SetStartAt(at)
-	event.SetEndAt(at.Add(15 * time.Minute))
-	event.SetSummary(title)
-	event.SetDescription("Nemi 事项的下一次提醒或截止时间。单次导出，不会同步后续更改；请在日历中检查时间与通知设置。")
 	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="nemi-event.ics"`)
-	w.Write([]byte(cal.Serialize()))
+	w.Write(calendar.Export(r.PathValue("id"), title, at, time.Now()))
 }

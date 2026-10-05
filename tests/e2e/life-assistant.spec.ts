@@ -86,8 +86,9 @@ test("mobile layout and honest connector states", async ({ page }) => {
   });
   await page.getByRole("button", { name: "打开导航" }).click();
   await page.getByRole("button", { name: "连接应用", exact: true }).click();
-  const connections = await (await page.request.get("/api/v1/connections")).json();
-  await expect(page.getByText("待配置", { exact: true })).toHaveCount(connections.channels.filter((c: { state: string }) => c.state === "unconfigured").length);
+  const catalog = await (await page.request.get("/api/v1/applications")).json();
+  await expect(page.locator(".application-row .capability-label").filter({ hasText: "待连接" })).toHaveCount(catalog.applications.filter((c: { state: string }) => c.state === "unconfigured").length);
+  await page.locator(".application-row").filter({ hasText: "高德地图" }).click();
   await expect(
     page.getByRole("heading", { name: "高德地图", exact: true }),
   ).toBeVisible();

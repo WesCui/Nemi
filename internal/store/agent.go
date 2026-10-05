@@ -205,7 +205,7 @@ func (s *Store) AgentMemoryPage(ctx context.Context, w, query string, offset int
 	return out, rows.Err()
 }
 func (s *Store) AgentConnections(ctx context.Context, w string) ([]map[string]any, error) {
-	rows, err := s.Pool.Query(ctx, "SELECT id,label,enabled,verified_at FROM app_connections WHERE workspace_id=$1 ORDER BY id LIMIT 20", w)
+	rows, err := s.Pool.Query(ctx, "SELECT id,label,enabled,revision,verified_at FROM app_connections WHERE workspace_id=$1 ORDER BY id LIMIT 20", w)
 	if err != nil {
 		return nil, err
 	}
@@ -214,11 +214,12 @@ func (s *Store) AgentConnections(ctx context.Context, w string) ([]map[string]an
 	for rows.Next() {
 		var id, label string
 		var enabled bool
+		var revision int
 		var verified *time.Time
-		if err = rows.Scan(&id, &label, &enabled, &verified); err != nil {
+		if err = rows.Scan(&id, &label, &enabled, &revision, &verified); err != nil {
 			return nil, err
 		}
-		out = append(out, map[string]any{"id": id, "label": label, "enabled": enabled, "verified_at": verified})
+		out = append(out, map[string]any{"id": id, "label": label, "enabled": enabled, "revision": revision, "verified_at": verified})
 	}
 	return out, rows.Err()
 }

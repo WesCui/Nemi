@@ -48,6 +48,8 @@ func MIME(name string) (string, error) {
 		return "application/json", nil
 	case ".csv":
 		return "text/csv; charset=utf-8", nil
+	case ".ics":
+		return "text/calendar; charset=utf-8", nil
 	case ".docx":
 		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document", nil
 	case ".xlsx":

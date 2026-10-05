@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 export function BotSettings({
   channel,
   onChanged,
+  forceEdit = false,
 }: {
   channel: {
     id: string;
@@ -17,8 +18,9 @@ export function BotSettings({
     verified_at?: string | null;
   };
   onChanged: () => Promise<void>;
+  forceEdit?: boolean;
 }) {
-  const [open, setOpen] = useState(channel.state !== "configured");
+  const [open, setOpen] = useState(forceEdit || channel.state !== "configured");
   const [label, setLabel] = useState(channel.label);
   const [webhook, setWebhook] = useState("");
   const [secret, setSecret] = useState("");
@@ -117,19 +119,9 @@ export function BotSettings({
             </label>
           )}
           <small className="muted">
-            凭据加密保存，不回显。保存不会发送消息；联调时先填写检查消息，再确认接收群。机器人只用于发送群消息，读取文档和日程需另行授权。
+            请让管理员从目标群的机器人设置复制这些信息。凭据加密保存，不进入对话。保存不会发送消息；读取文档或日历需要另行授权。
           </small>
           <div className="model-form-actions">
-            {channel.state === "configured" && (
-              <button
-                type="button"
-                className="text-button"
-                disabled={busy}
-                onClick={() => void save(false)}
-              >
-                停用连接
-              </button>
-            )}
             <button className="primary" disabled={busy} type="submit">
               {busy ? (
                 <LoaderCircle size={15} className="spin" />

@@ -20,6 +20,7 @@ const stepStatuses: Record<string, string> = { CALLING: "进行中", SUCCEEDED: 
 Object.assign(toolNames,{ list_files:"查看对话资料", read_file:"读取文件正文", read_table:"读取表格", analyze_table:"统计完整表格", create_artifact:"生成成果文件", read_webpage:"读取公开网页" });
 Object.assign(toolNames,{get_reminder:"读取提醒与版本",propose_matter_update:"准备事项修改",propose_reminder_update:"准备提醒修改",propose_memory:"准备偏好修改"});
 toolNames.await_actions="保存确认后的下一步";
+Object.assign(toolNames, { list_applications: "查询应用能力", propose_disconnect: "准备停用连接", export_matter_calendar: "生成日历文件" });
 function chinaTime(value: string) { return new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }); }
 
 function ActionCard({ action, onChanged }: { action: Proposal; onChanged: () => Promise<void> }) {

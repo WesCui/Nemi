@@ -66,19 +66,32 @@ func (a *API) decideAgentAction(w http.ResponseWriter, r *http.Request) {
 		}
 		if action.Kind == "connect_app" {
 			var p struct {
-				ID string `json:"app_id"`
+				ID      string `json:"app_id"`
+				Replace bool   `json:"replace"`
+				After   int    `json:"after_revision"`
 			}
 			if json.Unmarshal(action.Payload, &p) != nil {
 				return nil, 0, errors.New("ACTION_INVALID")
 			}
 			var enabled bool
-			if err = tx.QueryRow(r.Context(), "SELECT enabled FROM app_connections WHERE workspace_id=$1 AND id=$2 FOR SHARE", ws, p.ID).Scan(&enabled); err != nil || !enabled {
+			var revision int
+			if err = tx.QueryRow(r.Context(), "SELECT enabled,revision FROM app_connections WHERE workspace_id=$1 AND id=$2 FOR SHARE", ws, p.ID).Scan(&enabled, &revision); err != nil || !enabled || (p.Replace && revision <= p.After) {
 				return nil, 0, domain.ErrConflict
 			}
 			if err = a.Store.DecideAction(r.Context(), tx, ws, action.ID, "APPROVED", p.ID); err != nil {
 				return nil, 0, err
 			}
 			return map[string]string{"status": "APPROVED", "app_id": p.ID}, 200, nil
+		}
+		if action.Kind == "disconnect_app" {
+			id, err := a.Store.ApplyDisconnectAction(r.Context(), tx, ws, action)
+			if err != nil {
+				return nil, 0, err
+			}
+			if err = a.Store.DecideAction(r.Context(), tx, ws, action.ID, "APPROVED", id); err != nil {
+				return nil, 0, err
+			}
+			return map[string]string{"status": "APPROVED", "app_id": id}, 200, nil
 		}
 		if store.DataAction(action.Kind) {
 			id, err := a.Store.ApplyDataAction(r.Context(), tx, ws, action)

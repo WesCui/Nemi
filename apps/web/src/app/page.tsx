@@ -206,6 +206,11 @@ export default function Home() {
     setDraft(text);
     document.getElementById("composer")?.focus();
   }
+  function askNemi(text: string) {
+    setDraft((previous) => previous.trim() ? `${previous}\n${text}` : text);
+    setSelected(null); setMobileNav(false); setView("today");
+    requestAnimationFrame(() => document.getElementById("composer")?.focus());
+  }
   return (
     <div className="app-shell">
       <aside className={`sidebar ${mobileNav ? "nav-open" : ""}`}>
@@ -314,8 +319,7 @@ export default function Home() {
               </button>
             </div>
           )}
-          {view === "today" && (
-            <>
+          <div hidden={view !== "today"} style={view === "today" ? undefined : { display: "none" }}>
               <section className="hero">
                 <div>
                   <div className="eyebrow">
@@ -423,7 +427,7 @@ export default function Home() {
                 <section className="application-shortcut">
                   <span className="section-kicker">APPLICATIONS</span>
                   <h3>常用应用</h3>
-                  <p>查地点、导出日历，或把清单发到接收群。</p>
+                  <p>在对话里连接应用、处理资料，确认后完成操作。</p>
                   <button
                     className="text-button"
                     onClick={() => setView("connections")}
@@ -433,8 +437,7 @@ export default function Home() {
                   </button>
                 </section>
               </div>
-            </>
-          )}
+          </div>
           {view === "matters" && (
             <>
               <PageHeading
@@ -583,11 +586,7 @@ export default function Home() {
           )}
           {view === "connections" && (
             <ConnectionsPanel
-              matters={data.matters}
-              onImported={async (id) => {
-                await refresh();
-                setSelected(id);
-              }}
+              onAsk={askNemi}
             />
           )}
           <footer className="page-footer">
@@ -624,6 +623,7 @@ export default function Home() {
           models={models}
           refresh={refresh}
           onClose={() => setSelected(null)}
+          onAsk={askNemi}
         />
       )}
     </div>
@@ -1180,12 +1180,14 @@ function MatterDialog({
   models,
   refresh,
   onClose,
+  onAsk,
 }: {
   matter: Matter;
   data: Dashboard;
   models: ModelOverview;
   refresh: () => Promise<void>;
   onClose: () => void;
+  onAsk: (text: string) => void;
 }) {
   const run = data.runs.find((r) => r.matter_id === m.id);
   const reminder = data.reminders.find((r) => r.matter_id === m.id);
@@ -1436,6 +1438,7 @@ function MatterDialog({
       )}
       <MatterApplications
         matter={m}
+        onAsk={onAsk}
         calendarAvailable={
           m.status === "ACTIVE" && (!!m.deadline || !!reminder?.enabled)
         }

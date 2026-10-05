@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"nemi/internal/agent"
@@ -71,7 +72,9 @@ func TestAgentConnectAndSendUseImmutableConfirmationAndNeverResend(t *testing.T)
 		json.Unmarshal(raw, &b)
 		last := b.Messages[len(b.Messages)-1]
 		var choice any
-		if last.Role == "tool" {
+		if strings.Contains(b.Messages[0].Content, "会话整理器") {
+			choice = map[string]any{"finish_reason": "stop", "message": map[string]string{"content": "用户已配置企业微信群，发送前必须核对接收群与正文；连接修改和停用同样需要确认。"}}
+		} else if last.Role == "tool" {
 			choice = map[string]any{"finish_reason": "stop", "message": map[string]string{"content": "请在对话卡片中确认。"}}
 		} else {
 			name, args := "request_connection", `{"app_id":"wecom"}`
@@ -79,6 +82,12 @@ func TestAgentConnectAndSendUseImmutableConfirmationAndNeverResend(t *testing.T)
 				name = "propose_message"
 				p, _ := json.Marshal(map[string]string{"channel_id": "wecom", "text": strings.TrimPrefix(last.Content, "发送：")})
 				args = string(p)
+			}
+			if strings.HasPrefix(last.Content, "停用：") {
+				name, args = "propose_disconnect", `{"app_id":"wecom"}`
+			}
+			if strings.HasPrefix(last.Content, "修改：") {
+				name, args = "request_connection", `{"app_id":"wecom","replace":true}`
 			}
 			choice = map[string]any{"finish_reason": "tool_calls", "message": map[string]any{"tool_calls": []any{map[string]any{"id": "app1", "type": "function", "function": map[string]string{"name": name, "arguments": args}}}}}
 		}
@@ -198,11 +207,79 @@ func TestAgentConnectAndSendUseImmutableConfirmationAndNeverResend(t *testing.T)
 	if err != nil || d.Turns[1].Actions[0].DispatchStatus != "DELIVERED" || d.Turns[3].Actions[0].DispatchStatus != "UNKNOWN" {
 		t.Fatal("receipt lost after reload", err)
 	}
+	// A replacement cannot complete against the original enabled connection.
+	save(3, true)
+	replacement := turn("修改：企业微信群")
+	replacePath := "/api/v1/agent/actions/" + replacement.ID + "/approve"
+	if r := request("POST", replacePath, `{"confirmed":true}`, domain.ID()); r.Code != 409 {
+		t.Fatal("unchanged connection completed replacement")
+	}
+	save(4, true)
+	if r := request("POST", replacePath, `{"confirmed":true}`, domain.ID()); r.Code != 200 {
+		t.Fatal("saved replacement not approved", r.Code)
+	}
+	apps := request("GET", "/api/v1/applications", "", "")
+	if apps.Code != 200 || strings.Contains(apps.Body.String(), "private-fixture-webhook") || strings.Contains(apps.Body.String(), "credential") {
+		t.Fatal("catalog leaked credentials")
+	}
+	var catalog struct {
+		Applications []connectors.Application `json:"applications"`
+	}
+	if json.Unmarshal(apps.Body.Bytes(), &catalog) != nil || len(catalog.Applications) != 13 {
+		t.Fatal("catalog incomplete")
+	}
+	for _, app := range catalog.Applications {
+		if app.ID == "wecom" && (app.State != "configured" || app.Verified) {
+			t.Fatal("unverified configuration claimed verification")
+		}
+	}
+	staleDisconnect := turn("停用：企业微信群")
+	save(5, true)
+	if r := request("POST", "/api/v1/agent/actions/"+staleDisconnect.ID+"/approve", `{"confirmed":true}`, domain.ID()); r.Code != 409 {
+		t.Fatal("stale proposal disconnected new configuration")
+	}
+	oldMessage := turn("发送：核对后的工作清单")
+	disconnect := turn("停用：企业微信群")
+	if disconnect.Kind != "disconnect_app" {
+		t.Fatal("missing disconnect proposal")
+	}
+	current, _ := s.Connection(ctx, ws, "wecom")
+	if !current.Enabled || len(current.Credential) == 0 {
+		t.Fatal("proposed disconnect changed credentials without approval")
+	}
+	disconnectPath := "/api/v1/agent/actions/" + disconnect.ID + "/approve"
+	if r := request("POST", disconnectPath, `{"confirmed":false}`, domain.ID()); r.Code != 400 {
+		t.Fatal("unconfirmed disconnect applied")
+	}
+	var group sync.WaitGroup
+	for i := 0; i < 12; i++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			if r := request("POST", disconnectPath, `{"confirmed":true}`, domain.ID()); r.Code != 200 {
+				t.Error("concurrent disconnect failed", r.Code)
+			}
+		}()
+	}
+	group.Wait()
+	after, _ := s.Connection(ctx, ws, "wecom")
+	if after.Enabled || len(after.Credential) != 0 || after.Revision != current.Revision+1 {
+		t.Fatal("disconnect repeated or retained credentials")
+	}
+	if r := request("POST", "/api/v1/agent/actions/"+oldMessage.ID+"/approve", `{"confirmed":true}`, domain.ID()); r.Code != 409 || sends != 2 {
+		t.Fatal("old message sent after disconnect")
+	}
+	if r := request("POST", disconnectPath[:len(disconnectPath)-len("approve")]+"dismiss", `{"confirmed":true}`, domain.ID()); r.Code != 409 {
+		t.Fatal("confirmed disconnect dismissed")
+	}
 	other := "foreign-apps-" + domain.ID()
 	otherCode := domain.ID()
 	s.Bootstrap(ctx, otherCode, other)
 	token, _ = s.Login(ctx, otherCode)
 	if r := request("POST", path, `{"confirmed":true}`, domain.ID()); r.Code != 404 || sends != 2 {
 		t.Fatal("foreign action confirmed")
+	}
+	if r := request("POST", disconnectPath, `{"confirmed":true}`, domain.ID()); r.Code != 404 {
+		t.Fatal("foreign disconnect approved")
 	}
 }

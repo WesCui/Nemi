@@ -5,14 +5,14 @@ import { api } from "@/lib/api";
 import { BotSettings } from "@/components/bot-settings";
 import { FeishuDocuments } from "@/components/feishu-documents";
 
-export type AppAction = { id: string; kind: string; status: string; dispatch_status?: string; payload: { title: string; app_id?: string; channel_id?: string; recipient_label?: string; text?: string } };
+export type AppAction = { id: string; kind: string; status: string; dispatch_status?: string; payload: { title: string; app_id?: string; channel_id?: string; recipient_label?: string; connection_label?: string; text?: string; replace?: boolean; after_revision?: number } };
 type Channel = { id: string; name: string; label: string; state: string; revision?: number; verified_at?: string | null };
 
 function ConnectionCard({ action, onChanged, onContinue, canContinue, showContinue }: { action: AppAction; onChanged: () => Promise<void>; onContinue: () => Promise<void>; canContinue: boolean; showContinue: boolean }) {
   const [channel, setChannel] = useState<Channel | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const key = useRef(crypto.randomUUID());
+  const keys = useRef<Record<string, string>>({});
   const id = action.payload.app_id || "";
   async function load() {
     const data = await api<{ channels: Channel[] }>("/connections");
@@ -25,25 +25,51 @@ function ConnectionCard({ action, onChanged, onContinue, canContinue, showContin
     api<{ channels: Channel[] }>("/connections").then((data) => { if (!disposed) setChannel(data.channels.find((c) => c.id === id) || null); }).catch((e: Error) => { if (!disposed) setError(e.message); });
     return () => { disposed = true; };
   }, [id]);
-  async function complete() {
+  async function decide(decision: string) {
     setBusy(true); setError("");
     try {
-      await api(`/agent/actions/${action.id}/approve`, { confirmed: true }, "POST", key.current);
+      keys.current[decision] ||= crypto.randomUUID();
+      await api(`/agent/actions/${action.id}/${decision}`, { confirmed: true }, "POST", keys.current[decision]);
       await onChanged();
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
+  async function complete() { await decide("approve"); }
   return <aside className="agent-action agent-connection" aria-label="应用连接卡片">
     <span className="section-kicker">{action.status === "APPROVED" ? "配置已保存" : action.status === "DECLINED" ? "已取消连接引导" : "在这里连接应用"}</span>
     <h3>{action.payload.title}</h3>
-    {action.status === "PENDING" && (id === "feishu_documents" ? <FeishuDocuments setupOnly onConnected={complete} /> : channel ? <>
-      <p>请让群管理员提供机器人的连接地址，填写在下面。连接后，告诉妮米要发送的内容；每条消息都由你确认接收群和正文。</p>
-      <BotSettings key={channel.revision || 0} channel={channel} onChanged={async () => { const c = await load(); if (c?.state === "configured") await complete(); }} />
-      {channel.state === "configured" && <button type="button" className="primary" disabled={busy} onClick={() => void complete()}>完成连接，继续对话</button>}
+    {action.status === "PENDING" && (id === "feishu_documents" ? <FeishuDocuments setupOnly forceEdit={action.payload.replace} afterRevision={action.payload.after_revision} onConnected={complete} /> : channel ? <>
+      <p>请让群管理员提供机器人的连接地址，填入下面的专用字段。妮米会保留刚才的任务，后续消息会先展示接收群和正文，让你核对。</p>
+      <BotSettings key={channel.revision || 0} channel={channel} forceEdit={action.payload.replace} onChanged={async () => { const c = await load(); if (c?.state === "configured") await complete(); }} />
+      {channel.state === "configured" && (!action.payload.replace || (channel.revision || 0) > (action.payload.after_revision || 0)) && <button type="button" className="primary" disabled={busy} onClick={() => void complete()}>完成连接，继续对话</button>}
     </> : <p>正在读取连接信息…</p>)}
     {action.status === "APPROVED" && <><p>配置保存不代表平台权限已验证；实际结果会显示在对话中。</p>{showContinue && <button type="button" className="primary" disabled={!canContinue} onClick={() => void onContinue()}>继续刚才的任务</button>}</>}
     {error && <p className="form-error" role="alert">{error}</p>}
+    {action.status === "PENDING" && <button type="button" className="text-button" disabled={busy} onClick={() => void decide("dismiss")}>取消本次连接引导</button>}
     <small>凭据只在专用字段中加密保存，请勿发到聊天里。首次开通平台权限仍需你或管理员授权。</small>
+  </aside>;
+}
+
+function DisconnectCard({ action, onChanged }: { action: AppAction; onChanged: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const keys = useRef<Record<string, string>>({});
+  const deciding = useRef(false);
+  async function decide(decision: string) {
+    if (deciding.current) return;
+    deciding.current = true; setBusy(true); setError("");
+    try {
+      keys.current[decision] ||= crypto.randomUUID();
+      await api(`/agent/actions/${action.id}/${decision}`, { confirmed: true }, "POST", keys.current[decision]);
+      await onChanged();
+    } catch (e) { setError((e as Error).message); }
+    finally { deciding.current = false; setBusy(false); }
+  }
+  return <aside className="agent-action" aria-label="停用连接提案">
+    <span className="section-kicker">{action.status === "PENDING" ? "停用前请核对" : action.status === "APPROVED" ? "连接已停用" : "已取消停用"}</span>
+    <h3>{action.payload.title}</h3><p>连接：{action.payload.connection_label}</p>
+    <p>确认后清除妮米保存的连接凭据。平台账号和已发送的内容会保留；再次使用需要重新连接。</p>
+    {action.status === "PENDING" && <div className="agent-action-buttons"><button type="button" className="primary" disabled={busy} onClick={() => void decide("approve")}>{busy ? "处理中…" : "确认停用"}</button><button type="button" className="text-button" disabled={busy} onClick={() => void decide("dismiss")}>保留连接</button></div>}
+    {error && <p className="form-error" role="alert">{error}</p>}
   </aside>;
 }
 
@@ -73,5 +99,6 @@ function MessageCard({ action, onChanged }: { action: AppAction; onChanged: () =
 }
 
 export function AgentAppAction({ action, onChanged, onContinue, canContinue, showContinue = true }: { action: AppAction; onChanged: () => Promise<void>; onContinue: () => Promise<void>; canContinue: boolean; showContinue?: boolean }) {
+  if (action.kind === "disconnect_app") return <DisconnectCard action={action} onChanged={onChanged} />;
   return action.kind === "connect_app" ? <ConnectionCard action={action} onChanged={onChanged} onContinue={onContinue} canContinue={canContinue} showContinue={showContinue} /> : <MessageCard action={action} onChanged={onChanged} />;
 }

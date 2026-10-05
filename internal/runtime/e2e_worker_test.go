@@ -93,12 +93,7 @@ func TestE2EWorkerService(t *testing.T) {
 			if continuationErr != nil {
 				return nil, continuationErr
 			}
-			fileWorkflow := false
-			for _, m := range body.Messages {
-				if m.Role == "user" && m.Content == "统计这份账单并生成Excel汇总" {
-					fileWorkflow = true
-				}
-			}
+			fileWorkflow := userText == "统计这份账单并生成Excel汇总"
 			if last == "执行可停止的任务" {
 				select {
 				case <-r.Context().Done():
@@ -167,6 +162,20 @@ func TestE2EWorkerService(t *testing.T) {
 				}
 			} else if last == "连接企业微信" {
 				toolCall = map[string]any{"id": "fixture_connect", "type": "function", "function": map[string]string{"name": "request_connection", "arguments": `{"app_id":"wecom"}`}}
+			} else if last == "修改企业微信连接" {
+				toolCall = map[string]any{"id": "fixture_replace", "type": "function", "function": map[string]string{"name": "request_connection", "arguments": `{"app_id":"wecom","replace":true}`}}
+			} else if last == "连接飞书文档" {
+				toolCall = map[string]any{"id": "fixture_document", "type": "function", "function": map[string]string{"name": "request_connection", "arguments": `{"app_id":"feishu_documents"}`}}
+			} else if last == "停用企业微信" {
+				toolCall = map[string]any{"id": "fixture_disconnect", "type": "function", "function": map[string]string{"name": "propose_disconnect", "arguments": `{"app_id":"wecom"}`}}
+			} else if strings.HasPrefix(last, "请把「") && strings.Contains(last, "下一次提醒或截止时间生成可下载的日历文件") {
+				marker := "事项 ID："
+				index := strings.Index(last, marker)
+				if index < 0 || len(last) < index+len(marker)+32 {
+					return nil, fmt.Errorf("missing calendar matter ID")
+				}
+				args, _ := json.Marshal(map[string]string{"matter_id": last[index+len(marker) : index+len(marker)+32]})
+				toolCall = map[string]any{"id": "fixture_calendar", "type": "function", "function": map[string]string{"name": "export_matter_calendar", "arguments": string(args)}}
 			} else if last == "发送群消息" {
 				toolCall = map[string]any{"id": "fixture_message", "type": "function", "function": map[string]string{"name": "propose_message", "arguments": `{"channel_id":"wecom","text":"请核对这份工作安排。"}`}}
 			} else if last == "制定任务计划" {

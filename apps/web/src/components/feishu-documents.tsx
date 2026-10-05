@@ -13,13 +13,17 @@ export function FeishuDocuments({
   onImported,
   setupOnly = false,
   onConnected,
+  forceEdit = false,
+  afterRevision,
 }: {
   onImported?: (id: string) => Promise<void>;
   setupOnly?: boolean;
   onConnected?: () => Promise<void>;
+  forceEdit?: boolean;
+  afterRevision?: number;
 }) {
   const [state, setState] = useState<State | null>(null);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(forceEdit);
   const [label, setLabel] = useState("");
   const [appID, setAppID] = useState("");
   const [secret, setSecret] = useState("");
@@ -143,7 +147,7 @@ export function FeishuDocuments({
             >
               飞书开放平台 <ArrowUpRight size={13} />
             </a>}
-            {state.configured && (
+            {!setupOnly && state.configured && (
               <button
                 className="text-button"
                 type="button"
@@ -169,7 +173,7 @@ export function FeishuDocuments({
           </div>
         </form>
       )}
-      {setupOnly && state?.configured && !editing && <div className="model-receipt"><p>文档连接已配置；是否有读取权限，以实际读取结果为准。</p><button className="primary" type="button" disabled={busy} onClick={() => void action(async () => { await onConnected?.(); })}>完成连接，继续对话</button></div>}
+      {setupOnly && state?.configured && !editing && (!forceEdit || state.revision > (afterRevision || 0)) && <div className="model-receipt"><p>文档连接已配置；是否有读取权限，以实际读取结果为准。</p><button className="primary" type="button" disabled={busy} onClick={() => void action(async () => { await onConnected?.(); })}>完成连接，继续对话</button></div>}
       {!setupOnly && state?.configured && !editing && (
         <form
           className="matter-form"

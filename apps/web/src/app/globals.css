@@ -1,3 +1,9 @@
+.app-conversation-entry { margin: 24px 0; padding: 22px; background: #f6f5f1; border: 1px solid #e5e3dc; border-radius: 12px; }
+.app-conversation-entry > p { margin: 12px 0 20px; line-height: 1.8; overflow-wrap: anywhere; }
+.app-conversation-entry > small { display: block; margin-top: 12px; color: #77766f; line-height: 1.7; }
+.app-connection-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+.app-connection-actions .text-button { white-space: normal; text-align: left; }
+
 :root {
   --bg: #f6f5f1;
   --paper: #fffefa;
