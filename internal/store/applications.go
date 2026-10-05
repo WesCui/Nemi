@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"nemi/internal/browserreader"
 	"nemi/internal/connectors"
 	"nemi/internal/domain"
 )
@@ -20,6 +21,9 @@ func (s *Store) ApplicationCatalog(ctx context.Context, w, query string) ([]conn
 	out := []connectors.Application{}
 	query = strings.ToLower(strings.TrimSpace(query))
 	for _, app := range connectors.Catalog() {
+		if app.ID == "browser" && browserreader.Available() {
+			app.State = "available"
+		}
 		if query != "" && !strings.Contains(strings.ToLower(app.ID+" "+app.Name+" "+app.Summary), query) {
 			continue
 		}

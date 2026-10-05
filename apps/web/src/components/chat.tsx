@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { ModelOverview, modelFailure } from "@/components/models";
 import { AgentAppAction } from "@/components/agent-apps";
 import { ChatFile, FileCard, upload } from "@/components/chat-files";
+import { ChatReply } from "@/components/chat-reply";
 import { AgentDataAction, isDataProposal } from "@/components/agent-data";
 import { AgentContinuation, type Continuation } from "@/components/agent-continuation";
 
@@ -21,6 +22,8 @@ Object.assign(toolNames,{ list_files:"查看对话资料", read_file:"读取文�
 Object.assign(toolNames,{get_reminder:"读取提醒与版本",propose_matter_update:"准备事项修改",propose_reminder_update:"准备提醒修改",propose_memory:"准备偏好修改"});
 toolNames.await_actions="保存确认后的下一步";
 Object.assign(toolNames, { list_applications: "查询应用能力", propose_disconnect: "准备停用连接", export_matter_calendar: "生成日历文件" });
+Object.assign(toolNames, { search_web: "联网搜索资料", browse_web: "浏览器读取网页", search_places: "查询高德地点", plan_route: "查询高德路线", list_mail: "读取收件箱列表", read_mail: "读取选定邮件" });
+toolNames.final_answer = "整理已读资料并交付答复";
 function chinaTime(value: string) { return new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }); }
 
 function ActionCard({ action, onChanged }: { action: Proposal; onChanged: () => Promise<void> }) {
@@ -184,7 +187,7 @@ export function Chat({ models, draft, onDraft, onConfigure, sync, reset }: {
         <article className="chat-message assistant"><div className="chat-speaker">妮米 <small>{turn.model}</small></div>
           {turn.steps?.length > 0 && <details className="agent-steps"><summary>执行过程 · {turn.steps.length} 步</summary><ol>{turn.steps.map((step) => <li key={step.position}><span>{toolNames[step.name] || step.name}</span><small data-status={step.status}>{stepStatuses[step.status] || step.status}</small></li>)}</ol></details>}
           {turn.plan && <details className="agent-plan" open={turn.status === "RUNNING"}><summary>任务计划 · {turn.plan.goal}</summary><ol>{turn.plan.steps.map((step, i) => <li key={i}><span>{step.title}</span><small data-status={step.status}>{{ pending: "待处理", in_progress: "进行中", completed: "已完成" }[step.status] || step.status}</small></li>)}</ol><small>妮米报告的工作进度；操作是否生效，以执行结果和你的确认状态为准。</small></details>}
-          {turn.status === "SUCCEEDED" ? <p>{turn.reply}</p> : turn.status === "FAILED" ? <p className="form-error" role="alert">{modelFailure(turn.error)}</p> : <p className="chat-working"><LoaderCircle className="spin" size={15} />{turn.status === "QUEUED" ? "等待模型处理…" : "妮米正在处理…"}</p>}
+          {turn.status === "SUCCEEDED" ? <ChatReply text={turn.reply} /> : turn.status === "FAILED" ? <p className="form-error" role="alert">{modelFailure(turn.error)}</p> : <p className="chat-working"><LoaderCircle className="spin" size={15} />{turn.status === "QUEUED" ? "等待模型处理…" : "妮米正在处理…"}</p>}
           {turn.files?.filter((f) => f.kind !== "upload").map((f) => <FileCard key={f.id} file={f} />)}
           {["QUEUED", "RUNNING"].includes(turn.status) && <button type="button" className="text-button chat-stop" disabled={Boolean(stopping)} onClick={() => void stop(turn.run_id)}><Square size={12} />{stopping === turn.run_id ? "正在停止…" : "停止本次任务"}</button>}
           {turn.actions?.map((action) => action.kind === "create_matter" ? <ActionCard key={action.id} action={action} onChanged={load} /> : isDataProposal(action.kind) ? <AgentDataAction key={action.id} action={action} onChanged={load} /> : <AgentAppAction key={action.id} action={action} onChanged={load} showContinue={!turn.continuation} canContinue={!busy && !pending && !loading} onContinue={() => submit("应用连接已完成，请继续刚才的任务。", false)} />)}

@@ -166,6 +166,10 @@ func TestE2EWorkerService(t *testing.T) {
 				toolCall = map[string]any{"id": "fixture_replace", "type": "function", "function": map[string]string{"name": "request_connection", "arguments": `{"app_id":"wecom","replace":true}`}}
 			} else if last == "连接飞书文档" {
 				toolCall = map[string]any{"id": "fixture_document", "type": "function", "function": map[string]string{"name": "request_connection", "arguments": `{"app_id":"feishu_documents"}`}}
+			} else if last == "连接联网搜索" || last == "连接高德地图" || last == "连接邮箱" {
+				id := map[string]string{"连接联网搜索": "search", "连接高德地图": "amap", "连接邮箱": "mail"}[last]
+				args, _ := json.Marshal(map[string]string{"app_id": id})
+				toolCall = map[string]any{"id": "fixture_service", "type": "function", "function": map[string]string{"name": "request_connection", "arguments": string(args)}}
 			} else if last == "停用企业微信" {
 				toolCall = map[string]any{"id": "fixture_disconnect", "type": "function", "function": map[string]string{"name": "propose_disconnect", "arguments": `{"app_id":"wecom"}`}}
 			} else if strings.HasPrefix(last, "请把「") && strings.Contains(last, "下一次提醒或截止时间生成可下载的日历文件") {

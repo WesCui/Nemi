@@ -13,7 +13,7 @@ test("files stay in chat through upload, exact statistics, Excel delivery and re
   await page.getByLabel("告诉妮米你想做的事").fill("统计这份账单并生成Excel汇总");
   await page.getByRole("button", { name: "发送消息", exact: true }).click();
   const history = page.getByLabel("对话内容", { exact: true });
-  await expect(history.locator(".assistant > p").last()).toContainText("已统计完整账单并生成 Excel 汇总");
+  await expect(history.locator(".assistant .chat-reply").last()).toContainText("已统计完整账单并生成 Excel 汇总");
   await expect(page.locator(".composer-attachments")).toHaveCount(0);
   await history.getByRole("button", { name: "预览 生活账单汇总.xlsx" }).click();
   const result = page.getByRole("dialog", { name: "生活账单汇总.xlsx资料预览" });

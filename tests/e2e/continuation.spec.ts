@@ -71,7 +71,7 @@ test("a new user message supersedes an old wait and cannot be overwritten by lat
   await wait.getByRole("button", { name: "允许确认后继续" }).click();
   await page.getByLabel("告诉妮米你想做的事").fill("改为先聊别的问题");
   await page.getByRole("button", { name: "发送消息", exact: true }).click();
-  await expect(page.getByLabel("对话内容", { exact: true }).locator(".assistant > p").last()).toContainText("改为先聊别的问题");
+  await expect(page.getByLabel("对话内容", { exact: true }).locator(".assistant .chat-reply").last()).toContainText("改为先聊别的问题");
   await expect(wait.getByText(/新的消息已改变对话方向/)).toBeVisible();
   await page.getByLabel("事项提案", { exact: true }).getByRole("button", { name: "确认创建" }).click();
   await page.reload(); const current = await detail(page);

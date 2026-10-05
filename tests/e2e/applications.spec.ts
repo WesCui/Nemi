@@ -10,7 +10,7 @@ test("application tasks return to the current chat without outside navigation or
   let chatCalls = 0;
   page.on("request", r => { if (r.url().endsWith("/api/v1/chat/messages") && r.method() === "POST") chatCalls++; });
   await page.getByRole("button", { name: "连接应用", exact: true }).click();
-  await expect(page.locator(".application-row")).toHaveCount(13);
+  await expect(page.locator(".application-row")).toHaveCount(15);
   await expect(page.locator(".application-detail a[target='_blank']")).toHaveCount(0);
   await expect(page.locator(".application-detail input[type='password']")).toHaveCount(0);
   await page.getByRole("button", { name: "办公协作", exact: true }).click();

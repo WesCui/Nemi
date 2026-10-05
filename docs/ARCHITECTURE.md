@@ -1,6 +1,6 @@
 # 国内生活助理 Agent Cloud Runtime 技术架构
 
-版本：v0.11 · 日期：2026-10-05 · 状态：目标架构；代码实际交付与验证见 [实施状态](./IMPLEMENTATION.md)，未交付能力见 [完整目标跟踪](./GOAL_AUDIT.md)。
+版本：v0.12 · 日期：2026-10-05 · 状态：目标架构；代码实际交付与验证见 [实施状态](./IMPLEMENTATION.md)，未交付能力见 [完整目标跟踪](./GOAL_AUDIT.md)。
 
 v0.8 的资料层已实现：API 流式上传，独立 file-parser 提取被动文档，schema v9 保存元数据与聊天绑定，AES-256-GCM 加密本地/S3 对象，Agent 分页读取和精确统计，成果持久保存后内部预览与下载。公共网页工具使用受控 Go HTTP 与 Readability；不是云端浏览器。详细限制、对象提交不确定时的处理和解析隔离边界见 [资料合同](./FILES.md)。
 
@@ -748,3 +748,8 @@ propose_matter 只持久保存不可变 agent_actions / PENDING。Web 展示标�
 ## v0.11 对话应用工作流
 
 用户通过自然语言完成工作，应用目录只展示真实范围并将目标带回当前对话。Go能力清单同时提供给前端和Agent；连接修改记录原配置版本，停用确认同事务清除凭据并唤醒续办。已有事项可在对话导出真实日历成果。当前工具24项、agent-v6 / plan-v2，schema保持v11；应用OAuth、日历账号读写和云端电脑仍待交付。详见[对话应用操作](./CONVERSATIONAL_APPS.md)。
+
+
+## v0.12 联网执行层
+
+30项Agent工具共用有界Eino循环和PG步骤账本。在线服务凭据继续存app_connections并绑定空间/用途/版本；博查与高德使用固定官方端点、经过公网检查并固定IP的Go传输，不转发重定向凭据。邮箱仅TLS 993白名单，IMAP EXAMINE与BODY.PEEK读取，ID绑定revision与UIDVALIDITY。Playwright子进程只收URL与短期网关凭据，无应用密钥环境；所有页面资源通过受限Go GET/HEAD网关，正文以原加密文件流程绑定聊天。网络/进程限制不是硬资源或OS隔离，云端登录/接管/交易仍需Sandbox Broker。见[实际合同](./ONLINE_TOOLS.md)。

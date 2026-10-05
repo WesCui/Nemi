@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"nemi/internal/connectors"
 	"nemi/internal/domain"
 	"nemi/internal/store"
 )
@@ -70,7 +71,7 @@ func (a *API) decideAgentAction(w http.ResponseWriter, r *http.Request) {
 				Replace bool   `json:"replace"`
 				After   int    `json:"after_revision"`
 			}
-			if json.Unmarshal(action.Payload, &p) != nil {
+			if json.Unmarshal(action.Payload, &p) != nil || !connectors.Connectable(p.ID) {
 				return nil, 0, errors.New("ACTION_INVALID")
 			}
 			var enabled bool

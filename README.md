@@ -2,9 +2,11 @@
 
 **能理解目标、使用工具并持续推进工作的个人 Agent。**
 
-面向国内个人用户的通用助理，对标 Meta Muse 与 OpenAI dots 的持续执行、应用连接、记忆和云端电脑体验，覆盖生活、工作、学习与研究。采用 **Next.js + Go + Eino + Temporal + PostgreSQL**；事项与提醒是可调用能力，云端浏览器尚待交付。
+面向国内个人用户的通用助理，对标 Meta Muse 与 OpenAI dots 的持续执行、应用连接、记忆和云端电脑体验，覆盖生活、工作、学习与研究。采用 **Next.js + Go + Eino + Temporal + PostgreSQL**；已有联网搜索、高德、邮箱和服务端网页阅读工具；持久云端电脑与登录接管仍待交付。
 
-## v0.11 已交付
+## v0.12 已交付
+
+- 对话连接博查搜索、高德地图、QQ/163 等邮箱；新增搜索、地点/步行/驾车路线、只读邮件工具。服务端浏览器可渲染公开 JavaScript 页面并交付网页资料，需安装并启用浏览器；账号工具需真实凭据。详见 [联网工具与边界](docs/ONLINE_TOOLS.md)。
 
 - 应用目录和 Agent 共享真实能力清单；从目录回到当前对话，保留模型、历史、附件和草稿。在对话中连接 / 修改 / 确认停用，生成可预览、下载的日历成果。范围见 [对话应用操作](docs/CONVERSATIONAL_APPS.md)。
 
@@ -25,7 +27,7 @@
 - 凭据使用 AES-256-GCM 加密，绑定空间、用途与配置。密钥不回显，不写入任务参数、业务事件或 Git。
 - 飞书、企业微信、钉钉群机器人：页面配置、签名、正文与目标预览、确认发送、持久去重和联调回执。
 - 飞书官方 Go SDK：自建应用认证、读取选定且授权的 docx 文档、导入事项资料并保留原文入口。
-- 对话内单次 ICS 日历成果、Markdown 清单下载。高德实时搜索尚未接入，目录不再跳出执行工作。
+- 对话内单次 ICS 日历成果、Markdown 清单下载。高德真实地点与路线工具需 Web 服务 Key，目录不再跳出执行工作。
 - 事项持续补充资料与版本保护、已确认偏好引用、后台清单生成、费用预留与结算。
 - Temporal 持久运行、PG Outbox、共享 SSE；一次性和有结束日期的周期站内提醒、北京时间与免打扰。
 
@@ -56,7 +58,7 @@ npm run dev
 
 ```bash
 source scripts/env.sh
-go test -count=1 ./...
+go test -p 1 -count=1 ./...
 go vet ./...
 bash scripts/build.sh
 npm run test:e2e:isolated
@@ -72,6 +74,7 @@ npm run typecheck
 | [PRD](docs/PRD.md) | 国内通用个人 Agent 需求与交付范围 |
 | [架构](docs/ARCHITECTURE.md) | Go 持久运行、权限、费用与凭据合同 |
 | [Agent harness](docs/HARNESS.md) | 会话整理、计划、停止、对话应用操作与开源参考 |
+| [联网工具](docs/ONLINE_TOOLS.md) | 搜索、服务端网页浏览、真实地图和只读邮箱 |
 | [对话应用操作](docs/CONVERSATIONAL_APPS.md) | 共享能力清单、内部连接管理和真实日历成果 |
 | [对话修改](docs/AGENT_ACTIONS.md) | 事项、清单、提醒与偏好的自然语言管理和确认合同 |
 | [确认后继续](docs/CONTINUATION.md) | 对话审批、后台恢复、原模型绑定、期限和取消 |

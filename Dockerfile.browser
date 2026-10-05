@@ -1,0 +1,22 @@
+# Opt-in browser runtime. Public deployment still needs OS resource isolation.
+FROM golang:1.26.0-bookworm AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+RUN CGO_ENABLED=0 go build -o /out/control-api ./cmd/control-api && \
+    CGO_ENABLED=0 go build -o /out/runtime-worker ./cmd/runtime-worker && \
+    CGO_ENABLED=0 go build -o /out/notification-worker ./cmd/notification-worker && \
+    CGO_ENABLED=0 go build -o /out/relay ./cmd/relay && \
+    CGO_ENABLED=0 go build -o /out/file-parser ./cmd/file-parser
+FROM mcr.microsoft.com/playwright:v1.58.2-noble
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && mkdir -p /app/data && chown 65532:65532 /app/data
+COPY --from=build /out /app
+COPY scripts/browser-reader.mjs /app/scripts/browser-reader.mjs
+COPY docs/licenses /usr/share/licenses/nemi
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+USER 65532:65532
+ENTRYPOINT ["/app/control-api"]

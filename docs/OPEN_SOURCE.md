@@ -58,3 +58,11 @@ v0.8 新增实际依赖：[Excelize](https://github.com/qax-os/excelize) v2.11.0
 继续使用 Eino v0.9.21 的 ReAct；新增直接调用其 adk/middlewares/summarization 组件，接入自己的费用适配器和持久摘要 CAS。没有启用 Eino 自动模型重试，也未迁移到独立 ADK Runner。工具和消息发送仍复用既有官方 SDK / Adapter / PG 账本。
 
 调研 [DeepSeek 官方 deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)的插件架构、持久会话事件、工具 guard 和协作取消；参考 [Claude Code 工作方式](https://code.claude.com/docs/en/how-claude-code-works)、[Hooks](https://code.claude.com/docs/en/hooks)及 [Anthropic 长运行任务工程文章](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)。这些是设计参考，未安装 Claude Code / DeepSeek Harness，也未复制源码。具体取舍与交付边界见 [HARNESS.md](./HARNESS.md)。
+
+
+## v0.12 实际复用
+
+- Playwright 1.58.2，固定为Node运行依赖，直接用于匿名网页渲染；未引入第二个Agent Loop。Apache-2.0许可证随仓库保存。
+- emersion/go-imap v1.2.1、go-imap-id f94a56b9ecde 和go-message v0.18.2：直接用于只读IMAP、网易客户端ID、MIME及中文编码解码，复用协议实现。完整MIT许可证随镜像和仓库保存。
+- 博查和高德通过固定官方HTTP端点接入；不声称集成其内部搜索或地图引擎。实际边界见[联网工具](./ONLINE_TOOLS.md)。
+- [react-markdown](https://github.com/remarkjs/react-markdown) 10.1.0 与 [remark-gfm](https://github.com/remarkjs/remark-gfm) 4.0.1（MIT）：直接用于真实模型回复的标题、来源链接、列表和表格排版。关闭原始 HTML，链接限定 HTTP/HTTPS 或页内锚点，图片只显示说明文字，不加载外部资源；完整许可证保存于 docs/licenses。

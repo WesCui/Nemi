@@ -38,7 +38,7 @@ func New(c config.Config) *Gateway {
 func (g *Gateway) Profile() string {
 	contract := "plan-v2"
 	if g.Kind == "chat" {
-		contract = "agent-v6"
+		contract = "agent-v7"
 	}
 	p := fmt.Sprintf("%s:%s:%d:%d:%s", g.Config.Provider, g.Config.Model, g.Config.InputPrice, g.Config.OutputPrice, contract)
 	if g.ConfigID != "" {

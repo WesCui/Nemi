@@ -1,6 +1,8 @@
 name: nemi
 x-app: &app
-  build: .
+  build:
+    context: .
+    dockerfile: ${NEMI_DOCKERFILE:-Dockerfile}
   restart: unless-stopped
   volumes: ["credential-data:/app/data"]
   environment: &env
@@ -11,6 +13,7 @@ x-app: &app
     APP_CREDENTIAL_KEY: ${APP_CREDENTIAL_KEY:-}
     APP_CREDENTIAL_KEY_FILE: /app/data/credentials.key
     APP_FILES_ROOT: /app/data/files
+    APP_BROWSER_ENABLED: ${APP_BROWSER_ENABLED:-false}
     FILES_S3_ENDPOINT: ${FILES_S3_ENDPOINT:-}
     FILES_S3_BUCKET: ${FILES_S3_BUCKET:-}
     FILES_S3_ACCESS_KEY: ${FILES_S3_ACCESS_KEY:-}

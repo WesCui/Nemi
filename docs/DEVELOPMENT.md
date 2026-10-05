@@ -200,3 +200,10 @@ npm run test:e2e
 摘要组件直接使用现有 Eino 依赖，不新增第二个 Agent Runtime。新增测试见 internal/agent/harness*test.go、internal/store/harness_integration_test.go、internal/api/agent_apps_integration_test.go 和 tests/e2e/chat.spec.ts。只使用 nemi_test 和独立 Temporal 队列。浏览器测试不向外部平台发送消息；Go 协议 Transport 验证确认投递、旧连接拒绝及未知回执不重发。
 
 服务重启前保留旧服务运行，通过独立 .next-v07 目录与 .cache/bin/v07 构建新版本。生成目录不入 Git。真实验收凭据只在妮米的模型和连接卡片填写；不要贴到普通聊天、终端输出或开发对话。
+
+
+## v0.12 浏览器与在线服务
+
+`npm ci` 安装固定Playwright运行依赖。本机可复用已安装Chrome的独立临时实例；服务器使用 `npx playwright install --with-deps chromium` 安装浏览器。确认安装后在.env启用 `APP_BROWSER_ENABLED=true`，重启API和Runtime Worker。Compose需同时选择 `NEMI_DOCKERFILE=Dockerfile.browser`，普通Go镜像不含浏览器。此镜像尚未在本机完成构建，公网上线还需硬资源隔离。
+
+用户在对话输入“连接联网搜索”“连接高德地图”“连接邮箱”，凭据只填专用字段；无需写服务Key到.env。保存不触发付费服务查询，需由Agent按任务调用。运行 `NEMI_BROWSER_TEST=1 go test ./internal/browserreader` 可在已安装浏览器环境验证JS与网络阻断，其他测试继续使用专用nemi_test数据库。

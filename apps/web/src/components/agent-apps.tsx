@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { BotSettings } from "@/components/bot-settings";
 import { FeishuDocuments } from "@/components/feishu-documents";
+import { ServiceSettings } from "@/components/service-settings";
 
 export type AppAction = { id: string; kind: string; status: string; dispatch_status?: string; payload: { title: string; app_id?: string; channel_id?: string; recipient_label?: string; connection_label?: string; text?: string; replace?: boolean; after_revision?: number } };
 type Channel = { id: string; name: string; label: string; state: string; revision?: number; verified_at?: string | null };
@@ -14,17 +15,18 @@ function ConnectionCard({ action, onChanged, onContinue, canContinue, showContin
   const [busy, setBusy] = useState(false);
   const keys = useRef<Record<string, string>>({});
   const id = action.payload.app_id || "";
+  const service = ["search", "amap", "mail"].includes(id);
   async function load() {
     const data = await api<{ channels: Channel[] }>("/connections");
     const current = data.channels.find((c) => c.id === id) || null;
     setChannel(current); return current;
   }
   useEffect(() => {
-    if (id === "feishu_documents") return;
+    if (id === "feishu_documents" || service) return;
     let disposed = false;
     api<{ channels: Channel[] }>("/connections").then((data) => { if (!disposed) setChannel(data.channels.find((c) => c.id === id) || null); }).catch((e: Error) => { if (!disposed) setError(e.message); });
     return () => { disposed = true; };
-  }, [id]);
+  }, [id, service]);
   async function decide(decision: string) {
     setBusy(true); setError("");
     try {
@@ -38,7 +40,7 @@ function ConnectionCard({ action, onChanged, onContinue, canContinue, showContin
   return <aside className="agent-action agent-connection" aria-label="应用连接卡片">
     <span className="section-kicker">{action.status === "APPROVED" ? "配置已保存" : action.status === "DECLINED" ? "已取消连接引导" : "在这里连接应用"}</span>
     <h3>{action.payload.title}</h3>
-    {action.status === "PENDING" && (id === "feishu_documents" ? <FeishuDocuments setupOnly forceEdit={action.payload.replace} afterRevision={action.payload.after_revision} onConnected={complete} /> : channel ? <>
+    {action.status === "PENDING" && (service ? <ServiceSettings id={id} forceEdit={action.payload.replace} afterRevision={action.payload.after_revision} onConnected={complete} /> : id === "feishu_documents" ? <FeishuDocuments setupOnly forceEdit={action.payload.replace} afterRevision={action.payload.after_revision} onConnected={complete} /> : channel ? <>
       <p>请让群管理员提供机器人的连接地址，填入下面的专用字段。妮米会保留刚才的任务，后续消息会先展示接收群和正文，让你核对。</p>
       <BotSettings key={channel.revision || 0} channel={channel} forceEdit={action.payload.replace} onChanged={async () => { const c = await load(); if (c?.state === "configured") await complete(); }} />
       {channel.state === "configured" && (!action.payload.replace || (channel.revision || 0) > (action.payload.after_revision || 0)) && <button type="button" className="primary" disabled={busy} onClick={() => void complete()}>完成连接，继续对话</button>}

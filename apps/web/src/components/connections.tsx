@@ -9,7 +9,7 @@ type Application = {
   summary: string; boundary: string; capabilities: string[]; examples: string[];
   state: string; label?: string; verified: boolean;
 };
-const stateLabels: Record<string, string> = { configured: "已配置", unconfigured: "待连接", available: "可使用", planned: "尚未接入" };
+const stateLabels: Record<string, string> = { configured: "已配置", unconfigured: "待连接", available: "可使用", unavailable: "暂未启用", planned: "尚未接入" };
 
 export function ConnectionsPanel({ onAsk }: { onAsk: (text: string) => void }) {
   const [apps, setApps] = useState<Application[]>([]);

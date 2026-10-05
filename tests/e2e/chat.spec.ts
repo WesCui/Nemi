@@ -63,7 +63,7 @@ test("agent proposes a real action, persists confirmation, and reads the created
   const card = page.getByLabel("事项提案", { exact: true });
   await expect(card.getByRole("heading", { name: title })).toBeVisible();
   await expect(card.getByRole("button", { name: "确认创建" })).toBeVisible();
-  await expect(page.getByLabel("对话内容", { exact: true }).locator(".assistant > p").last()).toHaveText("已准备好提案，请确认后创建。");
+  await expect(page.getByLabel("对话内容", { exact: true }).locator(".assistant .chat-reply").last()).toHaveText("已准备好提案，请确认后创建。");
   const pending = await (await page.request.get("/api/v1/dashboard")).json();
   expect(pending.matters.length).toBe(before.matters.length);
   await page.reload();
@@ -83,7 +83,7 @@ test("agent proposes a real action, persists confirmation, and reads the created
   expect(after.reminders.some((r: { matter_id: string }) => r.matter_id === matters[0].id)).toBe(true);
   await page.getByLabel("告诉妮米你想做的事").fill("查一下我的事项");
   await page.getByRole("button", { name: "发送消息", exact: true }).click();
-  await expect(page.getByLabel("对话内容", { exact: true }).locator(".assistant > p").last()).toContainText(title);
+  await expect(page.getByLabel("对话内容", { exact: true }).locator(".assistant .chat-reply").last()).toContainText(title);
   const list = await (await page.request.get("/api/v1/conversations")).json();
   const detail = await (await page.request.get(`/api/v1/conversations/${list.conversations[0].id}`)).json();
   expect(detail.turns[1].steps.map((s: { name: string }) => s.name)).toEqual(["model", "list_matters", "model"]);
@@ -98,7 +98,7 @@ test("harness compacts old context and restores the task plan after reload", asy
   for (let i = 0; i < 6; i++) {
     await page.getByLabel("告诉妮米你想做的事").fill(i === 0 ? "预算1000元，不要订票" : i === 5 ? "制定任务计划" : `继续比较${i}`);
     await page.getByRole("button", { name: "发送消息", exact: true }).click();
-    await expect(history.locator(".assistant > p").last()).toHaveText(i === 5 ? "已经记录工作计划。" : new RegExp(i === 0 ? "预算1000" : `继续比较${i}`));
+    await expect(history.locator(".assistant .chat-reply").last()).toHaveText(i === 5 ? "已经记录工作计划。" : new RegExp(i === 0 ? "预算1000" : `继续比较${i}`));
     await expect(page.getByRole("button", { name: "停止本次任务", exact: true })).toHaveCount(0);
   }
   await expect(page.getByText("已整理较早的对话背景，完整记录仍保留在这里。", { exact: true })).toBeVisible();
@@ -132,7 +132,7 @@ test("stop cancels an in-flight task and permits a new turn without reviving the
   await expect(page.getByLabel("对话内容", { exact: true }).getByRole("alert")).toContainText("已停止本次任务");
   await page.getByLabel("告诉妮米你想做的事").fill("换一个问题");
   await page.getByRole("button", { name: "发送消息", exact: true }).click();
-  await expect(page.getByLabel("对话内容", { exact: true }).locator(".assistant > p").last()).toHaveText("收到：换一个问题");
+  await expect(page.getByLabel("对话内容", { exact: true }).locator(".assistant .chat-reply").last()).toHaveText("收到：换一个问题");
   await page.waitForTimeout(3500);
   await page.reload();
   const list = await (await page.request.get("/api/v1/conversations")).json();
@@ -159,7 +159,7 @@ test("connects an app inside the conversation, resumes the task, and reviews a g
   await expect(card.getByText("配置已保存", { exact: true })).toBeVisible();
   expect(new URL(page.url()).pathname).toBe("/");
   await card.getByRole("button", { name: "继续刚才的任务", exact: true }).click();
-  await expect(page.getByLabel("对话内容", { exact: true }).locator(".assistant > p").last()).toContainText("应用连接已完成，请继续刚才的任务。");
+  await expect(page.getByLabel("对话内容", { exact: true }).locator(".assistant .chat-reply").last()).toContainText("应用连接已完成，请继续刚才的任务。");
   await editor.fill("发送群消息");
   await page.getByRole("button", { name: "发送消息", exact: true }).click();
   const message = page.getByLabel("群消息提案", { exact: true });

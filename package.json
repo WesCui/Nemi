@@ -1,14 +1,17 @@
 {
   "name": "nemi-dev-tools",
   "private": true,
-  "version": "0.11.0",
+  "version": "0.12.0",
   "scripts": {
     "db": "node scripts/database.mjs",
     "test:e2e": "playwright test",
     "test:e2e:isolated": "node scripts/e2e-isolated.mjs"
   },
   "devDependencies": {
-    "embedded-postgres": "17.10.0-beta.17",
-    "@playwright/test": "1.58.2"
+    "@playwright/test": "1.58.2",
+    "embedded-postgres": "17.10.0-beta.17"
+  },
+  "dependencies": {
+    "playwright": "1.58.2"
   }
 }

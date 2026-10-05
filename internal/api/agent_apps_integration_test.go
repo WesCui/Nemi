@@ -225,7 +225,7 @@ func TestAgentConnectAndSendUseImmutableConfirmationAndNeverResend(t *testing.T)
 	var catalog struct {
 		Applications []connectors.Application `json:"applications"`
 	}
-	if json.Unmarshal(apps.Body.Bytes(), &catalog) != nil || len(catalog.Applications) != 13 {
+	if json.Unmarshal(apps.Body.Bytes(), &catalog) != nil || len(catalog.Applications) != 15 {
 		t.Fatal("catalog incomplete")
 	}
 	for _, app := range catalog.Applications {
